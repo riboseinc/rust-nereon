@@ -7,61 +7,39 @@ use std::io;
 extern "C" {
     fn ucl_parser_new(flags: i32) -> *mut libc::c_void;
     fn ucl_parser_free(p: *mut libc::c_void);
-    fn ucl_parser_add_chunk(p: *mut libc::c_void, s: *const i8, len: libc::size_t);
+    fn ucl_parser_add_chunk(p: *mut libc::c_void, s: *const i8, len: libc::size_t) -> bool;
+    fn ucl_parser_get_error(p: *mut libc::c_void) -> *const libc::c_char;
     fn ucl_parser_get_object(p: *mut libc::c_void) -> *mut libc::c_void;
     fn ucl_object_unref(p: *mut libc::c_void);
     fn ucl_object_emit(o: *mut libc::c_void, t: i32) -> *const libc::c_char;
 }
 
-struct UclParser {
-    h: *mut libc::c_void,
+enum Ucl {
+    Parser(*mut libc::c_void),
+    Object(*mut libc::c_void)
 }
 
-impl UclParser {
-    fn new() -> Option<UclParser> {
-        let h = unsafe { ucl_parser_new(0) };
-        match h.is_null() {
-            false => Some(UclParser{ h: h }),
-            true => None
+impl Drop for Ucl {
+    fn drop(&mut self) {
+        match self {
+            Ucl::Parser(h) => unsafe { ucl_parser_free(*h) },
+            Ucl::Object(h) => unsafe { ucl_object_unref(*h) }
         }
     }
 }
 
-impl Drop for UclParser {
-    fn drop(&mut self) {
-        unsafe {
-            ucl_parser_free(self.h);
-        }
-    }
-}
-
-struct UclObject {
-    h: *mut libc::c_void,
-}
-
-impl UclObject {
-    fn new(h: *mut libc::c_void) -> UclObject {
-        UclObject { h: h }
-    }
-}
-
-impl Drop for UclObject {
-    fn drop(&mut self) {
-        unsafe {
-            ucl_object_unref(self.h);
+impl Ucl {
+    fn unwrap(&self) -> *mut libc::c_void {
+        match self {
+            Ucl::Parser(h) => *h,
+            Ucl::Object(h) => *h
         }
     }
 }
 
 pub fn ucl_to_json(src: &mut io::Read) -> io::Result<String> {
-    // TODO: this is currently a memory leak as we can't call
-    // rust's free on the string emitted from UCL. Instead we need to
-    // create emitter callback functions to build up the emitted string
-    // within Rust
     let mut buffer = String::new();
     src.read_to_string(&mut buffer)?;
-
-    let parser = UclParser::new();
 
     let len = buffer.len();
     let src = match CString::new(buffer) {
@@ -74,24 +52,45 @@ pub fn ucl_to_json(src: &mut io::Read) -> io::Result<String> {
         }
     };
 
-    unsafe {
-        ucl_parser_add_chunk(parser.h, src.as_ptr(), len);
+    let p = match unsafe { ucl_parser_new(0) } {
+        h if !h.is_null() => Ucl::Parser(h),
+        _ => return Err(io::Error::new(io::ErrorKind::Other, "Failed to create UCL parser"))
+    };
+            
+    if ! unsafe { ucl_parser_add_chunk(p.unwrap(), src.as_ptr(), len) } {
+        return match unsafe { ucl_parser_get_error(p.unwrap()) } {
+            cerr if !cerr.is_null() => {
+                let err = unsafe { CStr::from_ptr(cerr) }.to_str().unwrap() ;
+                Err(io::Error::new(io::ErrorKind::Other, format!("Failed to parse UCL: {}", err)))
+            }
+            _ => {
+                Err(io::Error::new(io::ErrorKind::Other, "Failed to parse UCL"))
+            }
+        }
     }
 
-    let o = UclObject::new(unsafe { ucl_parser_get_object(parser.h) });
-    let cstr = unsafe { CStr::from_ptr(ucl_object_emit(o.h, 1)) };
+    let o = match unsafe { ucl_parser_get_object(p.unwrap()) } {
+        h if !h.is_null() => Ucl::Object(h),
+        _ => return Err(io::Error::new(io::ErrorKind::Other, "Failed to get UCL object"))
+    };
+    
+    // TODO: this is currently a memory leak as we can't call
+    // rust's free on the string emitted from UCL. Instead we need to
+    // create emitter callback functions to build up the emitted string
+    // within Rust
+    let cstr = unsafe { CStr::from_ptr( ucl_object_emit(o.unwrap(), 1)) };
 
     Ok(cstr.to_str().unwrap().to_owned())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+//    use super::*;
 
     #[test]
     fn ucl_to_json() {
         assert_eq!(
-            ucl_to_json(&mut "hello: \"hello\"".as_bytes()).unwrap(),
+            super::ucl_to_json(&mut "hello: \"hello\"".as_bytes()).unwrap(),
             "{\"hello\":\"hello\"}"
         );
     }

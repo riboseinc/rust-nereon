@@ -5,3 +5,4 @@ authors = ["John Hedges <john@drystone.co.uk>"]
 
 [dependencies]
 libc = ""
+tempfile = "3.0.0"

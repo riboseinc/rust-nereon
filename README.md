@@ -1,6 +1,8 @@
-# Multi-configuration parser library using Rust
+# Multi-configuration parser library
 
-This is a Rust wrapper around (and so depends upon)
+This crate is unstable and liable to change.
+
+This is a Rust FFI wrapper around (and so depends upon)
 [libnereon](https://github.com/riboseinc/libnereon).
 
 See the libnereon

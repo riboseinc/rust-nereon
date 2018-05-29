@@ -1,8 +1,16 @@
 [package]
-name = "rust-nereon"
+name = "nereon"
+description = "FFI wrapper for Riboseinc's libnereon configuration library"
 version = "0.1.0"
 authors = ["John Hedges <john@drystone.co.uk>"]
+license = "BSD-2-Clause"
+repository = "https://github.com/riboseinc/rust-nereon"
+readme = "README.md"
+
+exclude = ["/**/*~"]
 
 [dependencies]
-libc = ""
+libc = "0.2"
+
+[dev-dependencies]
 tempfile = "3.0.0"

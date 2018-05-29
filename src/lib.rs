@@ -28,17 +28,23 @@ use std::path::Path;
 mod libnereon;
 
 #[derive(Debug, PartialEq)]
-pub enum CfgData {
+pub enum NocData {
     Int(i64),
     Bool(bool),
     String(String),
-    Array(Vec<Cfg>),
+    Array(Vec<Noc>),
     Float(f64),
-    Object(Vec<Cfg>),
+    Object(Vec<Noc>),
 }
 
 #[derive(Debug, PartialEq)]
-pub enum MetaData {
+pub struct Noc {
+    key: String,
+    data: NocData,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum NosData {
     Int(i64),
     Bool(bool),
     String(String),
@@ -47,33 +53,27 @@ pub enum MetaData {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct Meta {
+pub struct Nos {
     name: String,
-    data: MetaData,
-    helper: bool,
+    data: NosData,
+    is_set: bool,
     sw_short: String,
     sw_long: String,
     desc_short: String,
     desc_long: String,
-    cfg_env: String,
-    cfg_key: String,
-}
-
-#[derive(Debug, PartialEq)]
-pub struct Cfg {
-    key: String,
-    data: CfgData,
+    env: String,
+    noc_key: String,
 }
 
 pub fn nereon<'a, I>(
-    cfg: Option<&Path>,
-    meta: Option<&Path>,
+    nos: Option<&str>,
+    noc: Option<&Path>,
     argv: I,
-) -> io::Result<(Option<Cfg>, Vec<Meta>)>
+) -> io::Result<(Vec<Nos>, Option<Noc>)>
 where
     I: IntoIterator<Item = OsString>,
 {
-    libnereon::nereon(cfg, meta, argv)
+    libnereon::nereon(nos, noc, argv)
 }
 
 #[cfg(test)]

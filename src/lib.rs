@@ -21,59 +21,130 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-use std::ffi::OsString;
-use std::io;
-use std::path::Path;
+extern crate getopts;
+extern crate regex;
+extern crate serde_json;
 
-mod libnereon;
+use libucl::ucl_to_json;
+use regex::Regex;
+use serde_json::{Value, map::Map};
+use std::{env, fs::File};
 
-#[derive(Debug, PartialEq)]
-pub enum NocData {
-    Int(i64),
-    Bool(bool),
-    String(String),
-    Array(Vec<Noc>),
-    Float(f64),
-    Object(Vec<Noc>),
-}
+pub mod libucl;
+pub mod nos;
 
-#[derive(Debug, PartialEq)]
-pub struct Noc {
-    key: String,
-    data: NocData,
-}
-
-#[derive(Debug, PartialEq)]
-pub enum NosData {
-    Int(i64),
-    Bool(bool),
-    String(String),
-    IpPort(i32),
-    Float(f64),
-}
-
-#[derive(Debug, PartialEq)]
-pub struct Nos {
-    name: String,
-    data: NosData,
-    is_set: bool,
-    sw_short: String,
-    sw_long: String,
-    desc_short: String,
-    desc_long: String,
-    env: String,
-    noc_key: String,
-}
-
-pub fn nereon<'a, I>(
-    nos: Option<&str>,
-    noc: Option<&Path>,
-    argv: I,
-) -> io::Result<(Vec<Nos>, Option<Noc>)>
+pub fn nereon_init<'a, T, U>(options: T, args: U) -> Result<Value, String>
 where
-    I: IntoIterator<Item = OsString>,
+    T: IntoIterator<Item = nos::Opt>,
+    U: IntoIterator<Item = &'a str>,
 {
-    libnereon::nereon(nos, noc, argv)
+    // collect options and sort by node depth
+    let mut options = options.into_iter().collect::<Vec<_>>();
+    options.sort_by(|a, b| a.node_depth().cmp(&b.node_depth()));
+
+    // get command line options
+    let mut getopts_options = getopts::Options::new();
+
+    for o in options.iter() {
+        o.to_getopts(&mut getopts_options);
+    }
+
+    let matches = match getopts_options.parse(args) {
+        Ok(ms) => ms,
+        Err(e) => return Err(format!("{:?}", e)),
+    };
+
+    // build the config tree
+    let mut config = Value::from(Map::new());
+    for o in options.iter() {
+        let mut subtree = &mut config;
+        let mut node = "".to_owned();
+        for key in o.get_branch_keys() {
+            node = node + "." + &key;
+            let old_subtree = subtree;
+            subtree = match old_subtree {
+                Value::Object(m) => {
+                    if !m.contains_key(&key) {
+                        m.insert(key.clone(), Value::from(Map::new()));
+                    }
+                    m.get_mut(&key).unwrap()
+                }
+                _ => return Err(format!("Config tree already has value at {}", node)),
+            };
+        }
+
+        // get default option value
+        let mut value = o.default.to_owned();
+
+        // environment overrides default
+        if let Some(ref name) = o.env {
+            if let Ok(s) = env::var(name) {
+                value = Some(s);
+            }
+        }
+
+        // command arg overrides environment
+        if let Some(name) = o.get_name() {
+            if let Some(s) = matches.opt_str(name) {
+                value = Some(s);
+            }
+        }
+
+        // add leaf node
+        if value.is_some() {
+            let mut value = value.unwrap();
+
+            // format the value if necessary
+            if let Some(f) = &o.format {
+                let re = Regex::new("(.*[^\\\\])\\{\\}(.*)").unwrap();
+                if let Some(c) = re.captures(f) {
+                    value = format!(
+                        "{}{}{}",
+                        c.get(1).unwrap().as_str(),
+                        value,
+                        c.get(2).unwrap().as_str()
+                    );
+                }
+            }
+
+            let value = match value.starts_with('@') {
+                true => match load_ucl(&value[1..]) {
+                    Ok(config) => config,
+                    Err(e) => {
+                        return Err(format!("Failed to load config file {}: {}", &value[1..], e))
+                    }
+                },
+                false => Value::String(value),
+            };
+
+            if let Value::Object(m) = subtree {
+                m.insert(o.get_leaf_key(), value);
+            }
+        }
+    }
+
+    Ok(config)
+}
+
+fn load_ucl(file: &str) -> Result<Value, String> {
+    let mut file = match File::open(file) {
+        Ok(f) => f,
+        Err(_) => return Err(format!("Couldn't open file")),
+    };
+    let value: Value = match ucl_to_json(&mut file) {
+        Ok(json) => match serde_json::from_str::<Value>(&json) {
+            Ok(v) => v,
+            Err(e) => {
+                return Err(format!(
+                    "Failed to parse json from libucl: {:?} [json: {}]",
+                    e, json
+                ))
+            }
+        },
+        Err(e) => return Err(format!("Parse failure (libucl): {:?}", e)),
+    };
+
+    Ok(value)
 }
 
 #[cfg(test)]

@@ -51,15 +51,20 @@ fn test_nos_option() {
             Some("Entity to greet."),
         ),
     ];
-    let config = nereon_init(options.clone(), vec!["-p"]);
+    let args = |v: Vec<&str>| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+
+    let config = nereon_init(
+        options.clone(),
+        vec!["-p"].iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+    );
     assert!(config.is_err());
-    let config = nereon_init(options.clone(), vec!["-w"]);
+    let config = nereon_init(options.clone(), args(vec!["-w"]));
     assert!(config.is_err());
 
     env::set_var("TEST_WHO", "guess who?");
     let config = nereon_init(
         options.clone(),
-        vec!["-w", "Arg", "--config", "tests/hello-who.conf"],
+        args(vec!["-w", "Arg", "--config", "tests/hello-who.conf"]),
     );
     if let Err(ref m) = config {
         println!("Error was: {:?}", m);
@@ -70,7 +75,7 @@ fn test_nos_option() {
     env::set_var("TEST_WHO", "guess who?");
     let config = nereon_json(
         options.clone(),
-        vec!["-w", "Arg", "--config", "tests/hello-who.conf"],
+        args(vec!["-w", "Arg", "--config", "tests/hello-who.conf"]),
     );
     if let Err(ref m) = config {
         println!("Error was: {:?}", m);

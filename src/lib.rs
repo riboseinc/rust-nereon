@@ -35,10 +35,10 @@ mod nos;
 
 pub use nos::{Opt, OptFlag};
 
-pub fn nereon_json<'a, T, U>(options: T, args: U) -> Result<String, String>
+pub fn nereon_json<T, U>(options: T, args: U) -> Result<String, String>
 where
     T: IntoIterator<Item = Opt>,
-    U: IntoIterator<Item = &'a str>,
+    U: IntoIterator<Item = String>,
 {
     match nereon_init(options, args) {
         Ok(v) => match serde_json::to_string(&v) {
@@ -49,10 +49,10 @@ where
     }
 }
 
-pub fn nereon_init<'a, T, U>(options: T, args: U) -> Result<Value, String>
+pub fn nereon_init<T, U>(options: T, args: U) -> Result<Value, String>
 where
     T: IntoIterator<Item = Opt>,
-    U: IntoIterator<Item = &'a str>,
+    U: IntoIterator<Item = String>,
 {
     // collect options and sort by node depth
     let mut options = options.into_iter().collect::<Vec<_>>();

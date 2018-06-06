@@ -36,7 +36,7 @@ pub struct Opt {
     usage: Option<String>,
 }
 
-pub enum Flag {
+pub enum OptFlag {
     Optional = 1,
     Multiple = 2,
     NoArg = 4,
@@ -69,9 +69,9 @@ impl Opt {
     pub fn to_getopts(&self, options: &mut getopts::Options) {
         if self.short.is_some() || self.long.is_some() {
             let mut hasarg = getopts::HasArg::Yes;
-            if self.flags & Flag::NoArg as u32 != 0 {
+            if self.flags & OptFlag::NoArg as u32 != 0 {
                 hasarg = getopts::HasArg::No;
-            } else if self.flags & Flag::OptionalArg as u32 != 0 {
+            } else if self.flags & OptFlag::OptionalArg as u32 != 0 {
                 hasarg = getopts::HasArg::Maybe;
             }
 

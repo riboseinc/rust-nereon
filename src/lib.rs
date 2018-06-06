@@ -31,11 +31,27 @@ use serde_json::{Value, map::Map};
 use std::{env, fs::File};
 
 pub mod libucl;
-pub mod nos;
+mod nos;
+
+pub use nos::{Opt, OptFlag};
+
+pub fn nereon_json<'a, T, U>(options: T, args: U) -> Result<String, String>
+where
+    T: IntoIterator<Item = Opt>,
+    U: IntoIterator<Item = &'a str>,
+{
+    match nereon_init(options, args) {
+        Ok(v) => match serde_json::to_string(&v) {
+            Ok(s) => Ok(s),
+            Err(m) => return Err(m.to_string()),
+        },
+        Err(m) => return Err(m),
+    }
+}
 
 pub fn nereon_init<'a, T, U>(options: T, args: U) -> Result<Value, String>
 where
-    T: IntoIterator<Item = nos::Opt>,
+    T: IntoIterator<Item = Opt>,
     U: IntoIterator<Item = &'a str>,
 {
     // collect options and sort by node depth

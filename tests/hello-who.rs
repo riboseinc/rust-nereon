@@ -23,8 +23,8 @@
 
 extern crate nereon;
 
-use nereon::nereon_init;
-use nereon::nos::Opt;
+use nereon::Opt;
+use nereon::{nereon_init, nereon_json};
 use std::env;
 
 #[test]
@@ -57,10 +57,26 @@ fn test_nos_option() {
     assert!(config.is_err());
 
     env::set_var("TEST_WHO", "guess who?");
-    let config = nereon_init(options.clone(), vec!["-w", "Arg", "--config", "tests/hello-who.conf"]);
+    let config = nereon_init(
+        options.clone(),
+        vec!["-w", "Arg", "--config", "tests/hello-who.conf"],
+    );
     if let Err(ref m) = config {
         println!("Error was: {:?}", m);
     }
     assert!(config.is_ok());
     println!("{:?}", config);
+
+    env::set_var("TEST_WHO", "guess who?");
+    let config = nereon_json(
+        options.clone(),
+        vec!["-w", "Arg", "--config", "tests/hello-who.conf"],
+    );
+    if let Err(ref m) = config {
+        println!("Error was: {:?}", m);
+    }
+    assert!(config.is_ok());
+    let config = config.unwrap();
+    println!("{:?}", config);
+    assert!(config == "{\"config\":{\"greeting\":\"olá\"},\"who\":\"Arg\"}");
 }

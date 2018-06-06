@@ -30,7 +30,14 @@ use std::io;
 extern "C" {
     fn ucl_parser_new(flags: i32) -> *mut libc::c_void;
     fn ucl_parser_free(p: *mut libc::c_void);
-    fn ucl_parser_add_chunk(p: *mut libc::c_void, s: *const i8, len: libc::size_t) -> bool;
+    fn ucl_parser_add_chunk_full(
+        p: *mut libc::c_void,
+        s: *const i8,
+        len: libc::size_t,
+        priority: libc::c_int,
+        strat: libc::c_int,
+        parse_type: libc::c_int,
+    ) -> bool;
     fn ucl_parser_get_error(p: *mut libc::c_void) -> *const libc::c_char;
     fn ucl_parser_get_object(p: *mut libc::c_void) -> *mut libc::c_void;
     fn ucl_object_unref(p: *mut libc::c_void);
@@ -85,7 +92,7 @@ pub fn ucl_to_json(src: &mut io::Read) -> io::Result<String> {
         }
     };
 
-    if !unsafe { ucl_parser_add_chunk(p.unwrap(), src.as_ptr(), len) } {
+    if !unsafe { ucl_parser_add_chunk_full(p.unwrap(), src.as_ptr(), len, 0, 1, 0) } {
         return match unsafe { ucl_parser_get_error(p.unwrap()) } {
             cerr if !cerr.is_null() => {
                 let err = unsafe { CStr::from_ptr(cerr) }.to_str().unwrap();

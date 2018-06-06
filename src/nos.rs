@@ -98,8 +98,11 @@ impl Opt {
             .collect()
     }
 
-    pub fn get_leaf_key(&self) -> String {
-        self.node.split('.').last().unwrap().to_owned()
+    pub fn get_leaf_key(&self) -> Option<String> {
+        match self.node.as_ref() {
+            "" => None,
+            _ => Some(self.node.split('.').last().unwrap().to_owned())
+        }
     }
 
     pub fn get_name(&self) -> &Option<String> {

@@ -75,6 +75,7 @@ where
     for o in options.iter() {
         let mut subtree = &mut config;
         let mut node = "".to_owned();
+
         for key in o.get_branch_keys() {
             node = node + "." + &key;
             let old_subtree = subtree;
@@ -134,7 +135,12 @@ where
             };
 
             if let Value::Object(m) = subtree {
-                m.insert(o.get_leaf_key(), value);
+                match o.get_leaf_key() {
+                    Some(k) => {
+                        m.insert(k, value);
+                    }
+                    None => *subtree = value,
+                }
             }
         }
     }

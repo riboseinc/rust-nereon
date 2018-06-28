@@ -67,6 +67,30 @@ impl Ucl {
     }
 }
 
+/// Converts UCL content from `src` into a JSON [`String`]
+///
+/// # Examples
+/// Basic usage:
+///
+/// ```
+/// # use nereon::libucl::ucl_to_json;
+/// let ucl = "greeting: \"hello\"";
+/// let mut reader = ucl.as_bytes();
+/// assert_eq!(ucl_to_json(&mut reader).unwrap(), "{\"greeting\":\"hello\"}");
+/// ```
+///
+/// # Remarks
+///
+/// A minimal wrapper around [libucl](https://github.com/vstakhov/libucl).
+///
+/// This function does not perform variable substitution. If you need variable
+/// substitution consider using [`nereon::ucl_to_serde_json`].
+///
+/// *Note*: The C string returned from libucl's `ucl_object_emit` cannot safely be
+/// freed from Rust and so it's memory is leaked.
+///
+/// [`String`]: https://doc.rust-lang.org/std/string/struct.String.html
+/// [`nereon::ucl_to_serde_json`]: ../fn.ucl_to_serde_json.html
 pub fn ucl_to_json(src: &mut io::Read) -> io::Result<String> {
     let mut buffer = String::new();
     src.read_to_string(&mut buffer)?;

@@ -28,7 +28,10 @@ extern crate serde_json;
 use libucl::ucl_to_json;
 use regex::Regex;
 use serde_json::{map::Map, Value};
-use std::{env, fs::File};
+use std::collections::HashMap;
+use std::env;
+use std::fs::File;
+use std::io;
 
 pub mod libucl;
 mod nos;
@@ -150,25 +153,88 @@ where
     Ok(config)
 }
 
-fn load_ucl(file: &str) -> Result<Value, String> {
-    let mut file = match File::open(file) {
-        Ok(f) => f,
-        Err(_) => return Err(format!("Couldn't open file")),
-    };
-    let value: Value = match ucl_to_json(&mut file) {
-        Ok(json) => match serde_json::from_str::<Value>(&json) {
-            Ok(v) => v,
-            Err(e) => {
-                return Err(format!(
-                    "Failed to parse json from libucl: {:?} [json: {}]",
-                    e, json
-                ))
-            }
+pub fn ucl_to_serde_json(src: &mut io::Read) -> Result<Value, String> {
+    match ucl_to_json(src) {
+        Err(e) => Err(format!("{}", e)),
+        Ok(s) => match serde_json::from_str::<Value>(&s) {
+            Err(e) => Err(format!("{}", e)),
+            Ok(mut v) => {
+                for _ in 1..10 {
+                    let mut expansions = HashMap::new();
+                    get_expansions(&v, &v, &mut expansions);
+                    if expansions.len() == 0 {
+                        break;
+                    }
+                    v = rebuild_node(&v, &expansions);
+                }
+                Ok(v)
+            },
         },
-        Err(e) => return Err(format!("Parse failure (libucl): {:?}", e)),
-    };
+    }
+}
 
-    Ok(value)
+fn get_expansions(node: &Value, root: &Value, expansions: &mut HashMap<String, Value>) -> () {
+    match node {
+        Value::String(s) => {
+            if !expansions.contains_key(s) {
+                if let Some(e) = expand(s, root) {
+                    expansions.insert(s.clone(), e);
+                }
+            }
+        }
+        Value::Object(o) => o.values().for_each(|n| get_expansions(n, root, expansions)),
+        _ => (),
+    }
+}
+
+fn rebuild_node(node: &Value, expansions: &HashMap<String, Value>) -> Value {
+    match node {
+        Value::String(s) => match expansions.get(s) {
+            Some(v) => v.clone(),
+            None => node.clone(),
+        },
+        Value::Object(o) => {
+            let mut new_o = Map::new();
+            for (k, v) in o {
+                new_o.insert(k.clone(), rebuild_node(v, expansions));
+            }
+            Value::Object(new_o)
+        }
+        _ => node.clone(),
+    }
+}
+
+fn expand(s: &str, root: &Value) -> Option<Value> {
+/*
+    let have_dollar = false;
+
+    for c in s.chars() {
+        if c == '$' {
+            if have_dollar {
+                out.push('$');
+            }
+            have_dollar = ! have_dollar;
+        }
+        if c == '{' {
+            if have_dollar {
+                match expand
+    match s.find("${") {
+        Some(p) if p == 0 || s[p-1]
+*/
+    None
+}
+
+fn load_ucl(file: &str) -> Result<Value, String> {
+    match File::open(file) {
+        Err(e) => Err(format!("Couldn't open file {}: {}", file, e)),
+        Ok(ref mut f) => match ucl_to_json(f) {
+            Err(e) => Err(format!("Failed to parse ucl {}: {}", file, e)),
+            Ok(json) => match serde_json::from_str::<Value>(&json) {
+                Err(e) => Err(format!("Failed to parse json from ucl {}: {}", file, e)),
+                Ok(v) => Ok(v),
+            },
+        },
+    }
 }
 
 #[cfg(test)]

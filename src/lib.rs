@@ -27,7 +27,7 @@ extern crate serde_json;
 
 use libucl::ucl_to_json;
 use regex::Regex;
-use serde_json::{Value, map::Map};
+use serde_json::{map::Map, Value};
 use std::{env, fs::File};
 
 pub mod libucl;
@@ -134,10 +134,12 @@ where
                 false => Value::String(value),
             };
 
-            if let Value::Object(m) = subtree {
+            if subtree.is_object() {
                 match o.get_leaf_key() {
                     Some(k) => {
-                        m.insert(k, value);
+                        if let Value::Object(m) = subtree {
+                            m.insert(k, value);
+                        }
                     }
                     None => *subtree = value,
                 }

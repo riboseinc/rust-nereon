@@ -23,6 +23,7 @@
 
 extern crate getopts;
 extern crate regex;
+#[macro_use]
 extern crate serde_json;
 
 use libucl::ucl_to_json;
@@ -49,6 +50,30 @@ where
             Err(m) => return Err(m.to_string()),
         },
         Err(m) => return Err(m),
+    }
+}
+
+fn value_into_string(v: Value) -> String {
+    match v {
+        Value::Object(_) => "".to_owned(),
+        Value::String(s) => s,
+        _ => format!("{}", v),
+    }
+}
+
+fn add_values(one: Value, other: Value) -> Value {
+    match one {
+        Value::String(s) => match s.len() {
+            0 => other,
+            _ => Value::String(s + &value_into_string(other)),
+        },
+        _ => match other {
+            Value::String(s) => match s.len() {
+                0 => one,
+                _ => Value::String(value_into_string(one) + &s),
+            },
+            _ => Value::String(value_into_string(one) + &value_into_string(other)),
+        },
     }
 }
 
@@ -171,12 +196,15 @@ pub fn ucl_to_serde_json(src: &mut io::Read) -> Result<Value, String> {
                     }
                     // attempt to expand expansions
                     for (k, v) in expansions.iter_mut() {
-                        *v = expand(k, &root);
+                        *v = expand_str(k, &root);
                     }
                     // substitute expansion results into tree
-                    substitute(&mut root, &expansions);
+                    substitute_expansions(&mut root, &expansions);
                     // filter completed expansions
-                    expansions = expansions.into_iter().filter(|(k, v)| v.is_none()).collect();
+                    expansions = expansions
+                        .into_iter()
+                        .filter(|(_, v)| v.is_none())
+                        .collect();
                 }
 
                 Ok(root)
@@ -197,38 +225,93 @@ fn get_expansions(node: &Value, expansions: &mut HashMap<String, Option<Value>>)
     }
 }
 
-fn substitute(node: &mut Value, expansions: &HashMap<String, Option<Value>>) -> () {
+fn substitute_expansions(node: &mut Value, expansions: &HashMap<String, Option<Value>>) -> () {
     if node.is_string() {
-        if let Some(v) = expansions.get(node.as_str().unwrap()) {
-            if let Some(v) = v {
-                *node = v.clone();
-            }
+        if let Some(Some(v)) = expansions.get(node.as_str().unwrap()) {
+            *node = v.clone();
         }
     } else if node.is_object() {
         for (_, n) in node.as_object_mut().unwrap().iter_mut() {
-            substitute(n, expansions);
+            substitute_expansions(n, expansions);
         }
     }
 }
 
-fn expand(s: &str, root: &Value) -> Option<Value> {
-    /*
-    let have_dollar = false;
+fn expand_str(s: &str, root: &Value) -> Option<Value> {
+    // replace all occurrences of $$ with '\0'
+    let mut s = s.replace("$$", "\0");
 
-    for c in s.chars() {
-        if c == '$' {
-            if have_dollar {
-                out.push('$');
-            }
-            have_dollar = ! have_dollar;
-        }
-        if c == '{' {
-            if have_dollar {
-                match expand
     match s.find("${") {
-        Some(p) if p == 0 || s[p-1]
-*/
-    None
+        None => {
+            s = s.replace("\0", "$");
+            Some(Value::String(s.to_owned()))
+        }
+        Some(p) => {
+            let prefix = Value::String(s[..p].replace('\0', "$").to_owned());
+            match expand_str(&s[(p + 2)..], root) {
+                Some(v) => {
+                    let remainder = value_into_string(v);
+                    match remainder.find("}") {
+                        None => {
+                            s = s.replace("\0", "$");
+                            Some(Value::String(s.to_owned()))
+                        }
+                        Some(e) => {
+                            let suffix = Value::String(remainder[(e + 1)..].to_owned());
+                            match expand_var(&remainder[..e], root) {
+                                Some(e) => Some(add_values(add_values(prefix, e), suffix)),
+                                None => None,
+                            }
+                        }
+                    }
+                }
+                None => None,
+            }
+        }
+    }
+}
+
+fn expand_var(v: &str, root: &Value) -> Option<Value> {
+    match v.find(':') {
+        None => None,
+        Some(p) => {
+            let (k, mut v) = v.split_at(p);
+            v = &v[1..];
+            match k.as_ref() {
+                "env" => Some(Value::String(env::var(&v).unwrap_or("".to_owned()))),
+                "file" => match File::open(&v) {
+                    // TODO: this silently fails if the file doesn't open or is invalid
+                    Ok(mut f) => match ucl_to_serde_json(&mut f) {
+                        Ok(v) => Some(v),
+                        _ => None,
+                    },
+                    _ => None,
+                },
+                "node" => match v.len() {
+                    0 => Some(root.clone()),
+                    _ => match get_node(root, &v.split('.').collect::<Vec<_>>().as_ref()) {
+                        Some(v) => Some(v.clone()),
+                        None => None,
+                    },
+                },
+                _ => None,
+            }
+        }
+        None => None,
+    }
+}
+
+fn get_node<'a>(node: &'a Value, keys: &[&str]) -> Option<&'a Value> {
+    match keys.len() {
+        0 => Some(node),
+        _ => match node {
+            Value::Object(o) => match o.get(keys[0]) {
+                Some(v) => get_node(v, &keys[1..]),
+                _ => None,
+            },
+            _ => None,
+        },
+    }
 }
 
 fn load_ucl(file: &str) -> Result<Value, String> {
@@ -246,8 +329,67 @@ fn load_ucl(file: &str) -> Result<Value, String> {
 
 #[cfg(test)]
 mod tests {
+    use super::{Map, Value};
+    use std::env;
+
     #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
+    fn test_expand() {
+        assert_eq!(
+            super::expand_var("env:!£^^", &Value::Bool(false)),
+            Some(Value::String("".to_owned()))
+        );
+        env::set_var("!£^^", "set");
+        assert_eq!(
+            super::expand_var("env:!£^^", &Value::Bool(false)),
+            Some(Value::String("set".to_owned()))
+        );
+        assert_eq!(
+            super::expand_var("file:tests/not_exist", &Value::Bool(false)),
+            None
+        );
+        assert_eq!(
+            super::expand_var("file:tests/hello-who.conf", &Value::Bool(false)),
+            Some(json!({"greeting":"olá"}))
+        );
+        assert_eq!(
+            super::expand_var("node:farewell", &json!({"greeting":"olá"})),
+            None
+        );
+        assert_eq!(
+            super::expand_var("node:", &json!({"greeting":"olá"})),
+            Some(json!({"greeting":"olá"}))
+        );
+        assert_eq!(
+            super::expand_var("node:greeting", &json!({"greeting":"olá"})),
+            Some(Value::String("olá".to_owned()))
+        );
+        assert_eq!(
+            super::expand_str("", &Value::Object(Map::new())),
+            Some(Value::String("".to_owned()))
+        );
+        assert_eq!(
+            super::expand_str("$$", &Value::Object(Map::new())),
+            Some(Value::String("$".to_owned()))
+        );
+        assert_eq!(
+            super::expand_str("${node:greeting}", &json!({"greeting":"olá"})),
+            Some(Value::String("olá".to_owned()))
+        );
+        assert_eq!(
+            super::expand_str(" ${node:greeting}", &json!({"greeting":"olá"})),
+            Some(Value::String(" olá".to_owned()))
+        );
+        assert_eq!(
+            super::expand_str("$$${node:greeting}", &json!({"greeting":"olá"})),
+            Some(Value::String("$olá".to_owned()))
+        );
+        assert_eq!(
+            super::expand_str("${node:greeting}$$", &json!({"greeting":"olá"})),
+            Some(Value::String("olá$".to_owned()))
+        );
+        assert_eq!(
+            super::expand_str("$$", &Value::Object(Map::new())),
+            Some(Value::String("$".to_owned()))
+        );
     }
 }

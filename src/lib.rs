@@ -158,54 +158,60 @@ pub fn ucl_to_serde_json(src: &mut io::Read) -> Result<Value, String> {
         Err(e) => Err(format!("{}", e)),
         Ok(s) => match serde_json::from_str::<Value>(&s) {
             Err(e) => Err(format!("{}", e)),
-            Ok(mut v) => {
-                for _ in 1..10 {
-                    let mut expansions = HashMap::new();
-                    get_expansions(&v, &v, &mut expansions);
+            Ok(mut root) => {
+                // collect all strings that require expansion
+                let mut expansions = HashMap::new();
+                get_expansions(&root, &mut expansions);
+
+                // perform up to 2 passes so nodes expanded in the
+                // first pass are available in second
+                for _ in 1..2 {
                     if expansions.len() == 0 {
                         break;
                     }
-                    v = rebuild_node(&v, &expansions);
+                    // attempt to expand expansions
+                    for (k, v) in expansions.iter_mut() {
+                        *v = expand(k, &root);
+                    }
+                    // substitute expansion results into tree
+                    root = rebuild_node(&root, &expansions);
+                    // filter completed expansions
+                    expansions = expansions.into_iter().filter(|(k, v)| v.is_none()).collect();
                 }
-                Ok(v)
-            },
+
+                Ok(root)
+            }
         },
     }
 }
 
-fn get_expansions(node: &Value, root: &Value, expansions: &mut HashMap<String, Value>) -> () {
+fn get_expansions(node: &Value, expansions: &mut HashMap<String, Option<Value>>) -> () {
     match node {
         Value::String(s) => {
-            if !expansions.contains_key(s) {
-                if let Some(e) = expand(s, root) {
-                    expansions.insert(s.clone(), e);
-                }
+            if s.contains('$') {
+                expansions.insert(s.clone(), None);
             }
         }
-        Value::Object(o) => o.values().for_each(|n| get_expansions(n, root, expansions)),
+        Value::Object(o) => o.values().for_each(|n| get_expansions(n, expansions)),
         _ => (),
     }
 }
 
-fn rebuild_node(node: &Value, expansions: &HashMap<String, Value>) -> Value {
+fn rebuild_node(node: &Value, expansions: &HashMap<String, Option<Value>>) -> Value {
     match node {
         Value::String(s) => match expansions.get(s) {
-            Some(v) => v.clone(),
-            None => node.clone(),
+            Some(Some(v)) => v.clone(),
+            _ => node.clone(),
         },
         Value::Object(o) => {
-            let mut new_o = Map::new();
-            for (k, v) in o {
-                new_o.insert(k.clone(), rebuild_node(v, expansions));
-            }
-            Value::Object(new_o)
+            Value::Object(o.into_iter().map(|(k, v)| (k.to_owned(), rebuild_node(v, expansions))).collect())
         }
         _ => node.clone(),
     }
 }
 
 fn expand(s: &str, root: &Value) -> Option<Value> {
-/*
+    /*
     let have_dollar = false;
 
     for c in s.chars() {

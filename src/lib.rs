@@ -174,7 +174,7 @@ pub fn ucl_to_serde_json(src: &mut io::Read) -> Result<Value, String> {
                         *v = expand(k, &root);
                     }
                     // substitute expansion results into tree
-                    root = rebuild_node(&root, &expansions);
+                    substitute(&mut root, &expansions);
                     // filter completed expansions
                     expansions = expansions.into_iter().filter(|(k, v)| v.is_none()).collect();
                 }
@@ -197,16 +197,17 @@ fn get_expansions(node: &Value, expansions: &mut HashMap<String, Option<Value>>)
     }
 }
 
-fn rebuild_node(node: &Value, expansions: &HashMap<String, Option<Value>>) -> Value {
-    match node {
-        Value::String(s) => match expansions.get(s) {
-            Some(Some(v)) => v.clone(),
-            _ => node.clone(),
-        },
-        Value::Object(o) => {
-            Value::Object(o.into_iter().map(|(k, v)| (k.to_owned(), rebuild_node(v, expansions))).collect())
+fn substitute(node: &mut Value, expansions: &HashMap<String, Option<Value>>) -> () {
+    if node.is_string() {
+        if let Some(v) = expansions.get(node.as_str().unwrap()) {
+            if let Some(v) = v {
+                *node = v.clone();
+            }
         }
-        _ => node.clone(),
+    } else if node.is_object() {
+        for (_, n) in node.as_object_mut().unwrap().iter_mut() {
+            substitute(n, expansions);
+        }
     }
 }
 

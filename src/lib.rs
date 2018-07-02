@@ -106,16 +106,16 @@ where
 
         for key in o.get_branch_keys() {
             node = node + "." + &key;
-            let old_subtree = subtree;
-            subtree = match old_subtree {
-                Value::Object(m) => {
-                    if !m.contains_key(&key) {
-                        m.insert(key.clone(), Value::from(Map::new()));
-                    }
-                    m.get_mut(&key).unwrap()
-                }
-                _ => return Err(format!("Config tree already has value at {}", node)),
-            };
+            if subtree.is_object() {
+                subtree = { subtree }
+                    .as_object_mut()
+                    .unwrap()
+                    .entry(key)
+                    .or_insert(Value::from(Map::new()));
+            }
+            if !subtree.is_object() {
+                return Err(format!("Config tree already has value at {}", node));
+            }
         }
 
         // get default option value
@@ -135,45 +135,34 @@ where
             }
         }
 
-        // add leaf node
-        if value.is_some() {
-            let mut value = value.unwrap();
-
-            // format the value if necessary
-            if let Some(f) = &o.format {
-                let re = Regex::new("(.*[^\\\\])\\{\\}(.*)").unwrap();
-                if let Some(c) = re.captures(f) {
-                    value = format!(
+        // format the value if necessary
+        if let Some(f) = &o.format {
+            let re = Regex::new("(.*[^\\\\])\\{\\}(.*)").unwrap();
+            if let Some(c) = re.captures(f) {
+                value = value.map(|v| {
+                    format!(
                         "{}{}{}",
                         c.get(1).unwrap().as_str(),
-                        value,
+                        v,
                         c.get(2).unwrap().as_str()
-                    );
-                }
-            }
-
-            let value = match value.starts_with('@') {
-                true => match load_ucl(&value[1..]) {
-                    Ok(config) => config,
-                    Err(e) => {
-                        return Err(format!("Failed to load config file {}: {}", &value[1..], e))
-                    }
-                },
-                false => Value::String(value),
-            };
-
-            if subtree.is_object() {
-                match o.get_leaf_key() {
-                    Some(k) => {
-                        if let Value::Object(m) = subtree {
-                            m.insert(k, value);
-                        }
-                    }
-                    None => *subtree = value,
-                }
+                    )
+                });
             }
         }
+
+        // add leaf node
+        value.map(|v| Value::String(v)).map_or_else(
+            || (),
+            |v| match o.get_leaf_key() {
+                Some(k) => {
+                    subtree.as_object_mut().unwrap().insert(k, v);
+                }
+                None => *subtree = v,
+            },
+        );
     }
+
+    expand_vars(&mut config);
 
     Ok(config)
 }
@@ -184,33 +173,36 @@ pub fn ucl_to_value(src: &mut io::Read) -> Result<Value, String> {
         Ok(s) => match serde_json::from_str::<Value>(&s) {
             Err(e) => Err(format!("{}", e)),
             Ok(mut root) => {
-                // collect all strings that require expansion
-                let mut expansions = HashMap::new();
-                get_expansions(&root, &mut expansions);
-
-                // perform up to 2 passes so nodes expanded in the
-                // first pass are available in second
-                for _ in 1..2 {
-                    if expansions.len() == 0 {
-                        break;
-                    }
-                    // attempt to expand expansions
-                    for (k, v) in expansions.iter_mut() {
-                        if v.is_none() {
-                            *v = expand_str(k, &root);
-                        }
-                    }
-                    // substitute expansion results into tree
-                    substitute_expansions(&mut root, &expansions);
-                    expansions = expansions
-                        .into_iter()
-                        .filter(|(_, v)| v.is_none())
-                        .collect();
-                }
-
+                expand_vars(&mut root);
                 Ok(root)
             }
         },
+    }
+}
+
+pub fn expand_vars(root: &mut Value) -> () {
+    // collect all strings that require expansion
+    let mut expansions = HashMap::new();
+    get_expansions(&root, &mut expansions);
+
+    // perform up to 2 passes so nodes expanded in the
+    // first pass are available in second
+    for _ in 1..2 {
+        if expansions.len() == 0 {
+            break;
+        }
+        // attempt to expand expansions
+        for (k, v) in expansions.iter_mut() {
+            if v.is_none() {
+                *v = expand_str(k, &root);
+            }
+        }
+        // substitute expansion results into tree
+        substitute_expansions(root, &expansions);
+        expansions = expansions
+            .into_iter()
+            .filter(|(_, v)| v.is_none())
+            .collect();
     }
 }
 
@@ -312,22 +304,9 @@ fn get_node<'a>(node: &'a Value, keys: &[&str]) -> Option<&'a Value> {
     }
 }
 
-fn load_ucl(file: &str) -> Result<Value, String> {
-    match File::open(file) {
-        Err(e) => Err(format!("Couldn't open file {}: {}", file, e)),
-        Ok(ref mut f) => match ucl_to_json(f) {
-            Err(e) => Err(format!("Failed to parse ucl {}: {}", file, e)),
-            Ok(json) => match serde_json::from_str::<Value>(&json) {
-                Err(e) => Err(format!("Failed to parse json from ucl {}: {}", file, e)),
-                Ok(v) => Ok(v),
-            },
-        },
-    }
-}
-
 #[cfg(test)]
 mod tests {
-//    extern crate serde_json;
+    //    extern crate serde_json;
 
     use serde_json::Value;
     use std::env;

@@ -37,7 +37,7 @@ fn test_nos_option() {
             None,
             0,
             None,
-            Some("@{}"),
+            Some("${file:{}}"),
             Some("Config file"),
         ),
         Opt::new(

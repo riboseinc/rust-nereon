@@ -23,7 +23,7 @@
 
 extern crate getopts;
 extern crate regex;
-#[macro_use]
+#[cfg_attr(test, macro_use)]
 extern crate serde_json;
 
 use libucl::ucl_to_json;
@@ -327,7 +327,7 @@ fn load_ucl(file: &str) -> Result<Value, String> {
 
 #[cfg(test)]
 mod tests {
-    extern crate serde_json;
+//    extern crate serde_json;
 
     use serde_json::Value;
     use std::env;

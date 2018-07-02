@@ -178,7 +178,7 @@ where
     Ok(config)
 }
 
-pub fn ucl_to_serde_json(src: &mut io::Read) -> Result<Value, String> {
+pub fn ucl_to_value(src: &mut io::Read) -> Result<Value, String> {
     match ucl_to_json(src) {
         Err(e) => Err(format!("{}", e)),
         Ok(s) => match serde_json::from_str::<Value>(&s) {
@@ -196,11 +196,12 @@ pub fn ucl_to_serde_json(src: &mut io::Read) -> Result<Value, String> {
                     }
                     // attempt to expand expansions
                     for (k, v) in expansions.iter_mut() {
-                        *v = expand_str(k, &root);
+                        if v.is_none() {
+                            *v = expand_str(k, &root);
+                        }
                     }
                     // substitute expansion results into tree
                     substitute_expansions(&mut root, &expansions);
-                    // filter completed expansions
                     expansions = expansions
                         .into_iter()
                         .filter(|(_, v)| v.is_none())
@@ -238,34 +239,29 @@ fn substitute_expansions(node: &mut Value, expansions: &HashMap<String, Option<V
 }
 
 fn expand_str(s: &str, root: &Value) -> Option<Value> {
-    // replace all occurrences of $$ with '\0'
-    let mut s = s.replace("$$", "\0");
+    match expand(&s.replace("$$", "\0"), &root) {
+        Some(Value::String(s)) => Some(Value::String(s.replace('\0', "$"))),
+        v => v,
+    }
+}
 
+fn expand(s: &str, root: &Value) -> Option<Value> {
     match s.find("${") {
-        None => {
-            s = s.replace("\0", "$");
-            Some(Value::String(s.to_owned()))
-        }
+        None => Some(Value::String(s.to_owned())),
         Some(p) => {
-            let prefix = Value::String(s[..p].replace('\0', "$").to_owned());
-            match expand_str(&s[(p + 2)..], root) {
-                Some(v) => {
-                    let remainder = value_into_string(v);
-                    match remainder.find("}") {
-                        None => {
-                            s = s.replace("\0", "$");
-                            Some(Value::String(s.to_owned()))
-                        }
-                        Some(e) => {
-                            let suffix = Value::String(remainder[(e + 1)..].to_owned());
-                            match expand_var(&remainder[..e], root) {
-                                Some(e) => Some(add_values(add_values(prefix, e), suffix)),
-                                None => None,
-                            }
+            let prefix = Value::String(s[..p].to_owned());
+            match expand(&s[(p + 2)..], root) {
+                Some(Value::String(s)) => match s.find("}") {
+                    None => Some(Value::String(s)),
+                    Some(e) => {
+                        let suffix = Value::String(s[(e + 1)..].to_owned());
+                        match expand_var(&s[..e], root) {
+                            Some(e) => Some(add_values(add_values(prefix, e), suffix)),
+                            None => None,
                         }
                     }
-                }
-                None => None,
+                },
+                v => v,
             }
         }
     }
@@ -278,10 +274,13 @@ fn expand_var(v: &str, root: &Value) -> Option<Value> {
             let (k, mut v) = v.split_at(p);
             v = &v[1..];
             match k.as_ref() {
-                "env" => Some(Value::String(env::var(&v).unwrap_or("".to_owned()))),
+                "env" => expand(
+                    &env::var(&v).unwrap_or("".to_owned()).replace("$$", "\0"),
+                    &root,
+                ),
                 "file" => match File::open(&v) {
                     // TODO: this silently fails if the file doesn't open or is invalid
-                    Ok(mut f) => match ucl_to_serde_json(&mut f) {
+                    Ok(mut f) => match ucl_to_value(&mut f) {
                         Ok(v) => Some(v),
                         _ => None,
                     },
@@ -297,7 +296,6 @@ fn expand_var(v: &str, root: &Value) -> Option<Value> {
                 _ => None,
             }
         }
-        None => None,
     }
 }
 
@@ -329,19 +327,22 @@ fn load_ucl(file: &str) -> Result<Value, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Map, Value};
+    extern crate serde_json;
+
+    use serde_json::Value;
     use std::env;
 
     #[test]
     fn test_expand() {
+        env::remove_var("TEST");
         assert_eq!(
-            super::expand_var("env:!£^^", &Value::Bool(false)),
+            super::expand_var("env:TEST", &Value::Bool(false)),
             Some(Value::String("".to_owned()))
         );
-        env::set_var("!£^^", "set");
+        env::set_var("TEST", "test");
         assert_eq!(
-            super::expand_var("env:!£^^", &Value::Bool(false)),
-            Some(Value::String("set".to_owned()))
+            super::expand_var("env:TEST", &Value::Bool(false)),
+            Some(Value::String("test".to_owned()))
         );
         assert_eq!(
             super::expand_var("file:tests/not_exist", &Value::Bool(false)),
@@ -364,11 +365,11 @@ mod tests {
             Some(Value::String("olá".to_owned()))
         );
         assert_eq!(
-            super::expand_str("", &Value::Object(Map::new())),
+            super::expand_str("", &Value::Null),
             Some(Value::String("".to_owned()))
         );
         assert_eq!(
-            super::expand_str("$$", &Value::Object(Map::new())),
+            super::expand_str("$$", &Value::Null),
             Some(Value::String("$".to_owned()))
         );
         assert_eq!(
@@ -388,8 +389,23 @@ mod tests {
             Some(Value::String("olá$".to_owned()))
         );
         assert_eq!(
-            super::expand_str("$$", &Value::Object(Map::new())),
+            super::expand_str("$$", &Value::Null),
             Some(Value::String("$".to_owned()))
         );
+        env::set_var("TEST", "$$");
+        assert_eq!(
+            super::expand_str("${env:TEST}", &Value::Null),
+            Some(Value::String("$".to_owned()))
+        );
+        env::set_var("TEST", "${node:greeting}");
+        assert_eq!(
+            super::expand_str("${env:TEST}", &json!({"greeting":"olá"})),
+            Some(Value::String("olá".to_owned()))
+        );
+        let src = "\
+                   greeting1 = ${env:TEST}\n\
+                   greeting = olá";
+        let expected = json!({"greeting":"olá", "greeting1":"olá"});
+        assert_eq!(super::ucl_to_value(&mut src.as_bytes()), Ok(expected));
     }
 }

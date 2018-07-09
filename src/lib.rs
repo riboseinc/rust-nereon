@@ -39,6 +39,7 @@ mod nos;
 
 pub use nos::{Opt, OptFlag};
 
+/// Process command-line options into JSON formatted configuration.
 pub fn nereon_json<T, U>(options: T, args: U) -> Result<String, String>
 where
     T: IntoIterator<Item = Opt>,
@@ -61,7 +62,7 @@ fn value_into_string(v: Value) -> String {
     }
 }
 
-fn add_values(one: Value, other: Value) -> Value {
+fn concatenate_values(one: Value, other: Value) -> Value {
     match one {
         Value::String(s) => match s.len() {
             0 => other,
@@ -77,6 +78,8 @@ fn add_values(one: Value, other: Value) -> Value {
     }
 }
 
+/// Process command-line options into a serde_json
+/// [`Value`](https://docs.serde.rs/serde_json/value/enum.Value.html).
 pub fn nereon_init<T, U>(options: T, args: U) -> Result<Value, String>
 where
     T: IntoIterator<Item = Opt>,
@@ -129,7 +132,7 @@ where
             }
         }
 
-        // format the value if necessary
+        // format the values if necessary
         if let Some(f) = &o.format {
             let re = Regex::new("(.*[^\\\\])\\{\\}(.*)").unwrap();
             if let Some(c) = re.captures(f) {
@@ -159,25 +162,110 @@ where
         }
     }
 
-    expand_vars(&mut config);
-
-    Ok(config)
+    match expand_vars(&mut config) {
+        Ok(_) => Ok(config),
+        Err(s) => Err(s),
+    }
 }
 
+/// Converts UCL formatted data into serde_json
+/// [`Value`](https://docs.serde.rs/serde_json/value/enum.Value.html).
+///
+/// # Examples
+///
+/// ```
+/// # #[macro_use] extern crate serde_json;
+/// # extern crate nereon;
+/// # use nereon::ucl_to_value;
+/// let mut ucl = r#"
+///     user "root" {
+///         uid 0
+///     }
+/// "#;
+///
+/// let value = json!({"user" : {"root" : {"uid" : 0 }}});
+///
+/// assert_eq!(ucl_to_value(&mut ucl.as_bytes()).unwrap(), value);
+/// ```
 pub fn ucl_to_value(src: &mut io::Read) -> Result<Value, String> {
     match ucl_to_json(src) {
         Err(e) => Err(format!("{}", e)),
         Ok(s) => match serde_json::from_str::<Value>(&s) {
             Err(e) => Err(format!("{}", e)),
-            Ok(mut root) => {
-                expand_vars(&mut root);
-                Ok(root)
-            }
+            Ok(mut root) => match expand_vars(&mut root) {
+                Ok(_) => Ok(root),
+                Err(e) => Err(e),
+            },
         },
     }
 }
 
-pub fn expand_vars(root: &mut Value) -> () {
+/// Perform variable interpolation within serde_json
+/// [`Value`](https://docs.serde.rs/serde_json/value/enum.Value.html).
+///
+/// Recursively searches all strings within `root` for variables that
+/// can be expanded and expands these varialbles in place.
+///
+/// There are three types of expansion:
+/// * `${node:some.node}` - substitutes `some.node` from root. `some.node` is the absolute
+/// path of the node within `root`.
+/// * `${file:some/file} - substitutes the expanded contents of `some/file`
+/// * `${ENV:env_var}` - substitutes the environment variable `env_var`
+///
+/// `$$` expands to `$`
+///
+/// *Note*: `node` and `file` type substitutions can cause `expand_vars` to return an `Err`
+/// if the corresponding node or file isn't found. `env` substitutions will always succeed
+/// and use the empty string `""` in place of the environment variable if it isn't set.
+///
+/// # Examples
+///
+/// ```
+/// # #[macro_use] extern crate serde_json;
+/// # extern crate nereon;
+/// # use nereon::expand_vars;
+/// use std::env;
+///
+/// // substitute entire string with another
+/// let mut value = json!({"user" : "${env:nereon_user}"});
+/// env::set_var("nereon_user", "root");
+/// expand_vars(&mut value);
+/// assert_eq!(value, json!({"user" : "root"}));
+///
+/// // substitute a string for part of a string
+/// let mut value = json!({"user" : "User is ${env:nereon_user}"});
+/// expand_vars(&mut value);
+/// assert_eq!(value, json!({"user" : "User is root"}));
+///
+/// // substitute a node for an entire string
+/// let mut value = json!({
+///     "allowed" : ["root", "admin"],
+///     "users" : "${node:allowed}"
+/// });
+/// expand_vars(&mut value);
+/// assert_eq!(value, json!({
+///     "allowed" : ["root", "admin"],
+///     "users" : ["root", "admin"]
+/// }));
+///
+/// // this one fails ...
+/// let mut value = json!({
+///     "user" : "${node:missing}",
+///     "file" : "${file:no-such-file}",
+/// });
+/// assert!(expand_vars(&mut value).is_err());
+///
+/// // ... but this succeeds
+/// let mut value = json!({"env" : "${env:no_such_env_var}"});
+/// expand_vars(&mut value);
+/// assert_eq!(value, json!({"env" : ""}));
+///
+/// // $$ expansion
+/// let mut value = json!({"node" : "$${node:example}"});
+/// expand_vars(&mut value);
+/// assert_eq!(value, json!({"node" : "${node:example}"}));
+/// ```
+pub fn expand_vars(root: &mut Value) -> Result<(), String> {
     // collect all strings that require expansion
     let mut expansions = HashMap::new();
     get_expansions(&root, &mut expansions);
@@ -200,6 +288,12 @@ pub fn expand_vars(root: &mut Value) -> () {
             .into_iter()
             .filter(|(_, v)| v.is_none())
             .collect();
+    }
+
+    if expansions.len() == 0 {
+        Ok(())
+    } else {
+        Err(format!("Expansions failed for {:?}", expansions.keys()))
     }
 }
 
@@ -274,7 +368,9 @@ fn expand(s: &str, root: &Value) -> Option<Value> {
                     Some(e) => {
                         let suffix = Value::String(s[(e + 1)..].to_owned());
                         match expand_var(&s[..e], root) {
-                            Some(e) => Some(add_values(add_values(prefix, e), suffix)),
+                            Some(e) => {
+                                Some(concatenate_values(concatenate_values(prefix, e), suffix))
+                            }
                             None => None,
                         }
                     }
@@ -297,7 +393,6 @@ fn expand_var(v: &str, root: &Value) -> Option<Value> {
                     &root,
                 ),
                 "file" => match File::open(&v) {
-                    // TODO: this silently fails if the file doesn't open or is invalid
                     Ok(mut f) => match ucl_to_value(&mut f) {
                         Ok(v) => Some(v),
                         _ => None,
@@ -412,5 +507,14 @@ mod tests {
                    greeting = olá";
         let expected = json!({"greeting":"olá", "greeting1":"olá"});
         assert_eq!(super::ucl_to_value(&mut src.as_bytes()), Ok(expected));
+
+        // this one fails
+        let mut value = json!({
+            "user" : "${node:missing}",
+            "file" : "${file:no-such-file}",
+        });
+        let result = super::expand_vars(&mut value);
+        println!("{:?}", result);
+        assert!(result.is_err());
     }
 }

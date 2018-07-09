@@ -101,37 +101,31 @@ where
     // build the config tree
     let mut config = Value::from(Map::new());
     for o in options.iter() {
-        let mut subtree = &mut config;
-        let mut node = "".to_owned();
+        // explicit option is highest priority
+        let mut values = match o.get_name() {
+            Some(n) => matches.opt_strs(n),
+            None => Vec::new(),
+        };
 
-        for key in o.get_branch_keys() {
-            node = node + "." + &key;
-            if subtree.is_object() {
-                subtree = { subtree }
-                    .as_object_mut()
-                    .unwrap()
-                    .entry(key)
-                    .or_insert(Value::from(Map::new()));
-            }
-            if !subtree.is_object() {
-                return Err(format!("Config tree already has value at {}", node));
+        // use environment if no value from options
+        if values.len() == 0 {
+            if let Some(ref name) = o.env {
+                if let Ok(s) = env::var(name) {
+                    values.push(s.to_owned());
+                }
             }
         }
 
-        // get default option value
-        let mut value = o.default.to_owned();
-
-        // environment overrides default
-        if let Some(ref name) = o.env {
-            if let Ok(s) = env::var(name) {
-                value = Some(s);
-            }
-        }
-
-        // command arg overrides environment
-        if let Some(name) = o.get_name() {
-            if let Some(s) = matches.opt_str(name) {
-                value = Some(s);
+        // and finally use default if still no value
+        if values.len() == 0 {
+            if let Some(ref s) = o.default {
+                values.push(s.to_owned());
+            } else if o.flags & OptFlag::Optional as u32 == 0 {
+                if let Some(ref n) = o.get_name() {
+                    return Err(format!("Option is required ({})", n));
+                } else {
+                    return Err("Required option not supplied".to_owned());
+                }
             }
         }
 
@@ -139,27 +133,30 @@ where
         if let Some(f) = &o.format {
             let re = Regex::new("(.*[^\\\\])\\{\\}(.*)").unwrap();
             if let Some(c) = re.captures(f) {
-                value = value.map(|v| {
-                    format!(
-                        "{}{}{}",
-                        c.get(1).unwrap().as_str(),
-                        v,
-                        c.get(2).unwrap().as_str()
-                    )
-                });
+                let prefix = c.get(1).unwrap().as_str();
+                let suffix = c.get(2).unwrap().as_str();
+                values = values
+                    .iter()
+                    .map(|v| format!("{}{}{}", prefix, v, suffix))
+                    .collect();
             }
         }
 
-        // add leaf node
-        value.map(|v| Value::String(v)).map_or_else(
-            || (),
-            |v| match o.get_leaf_key() {
-                Some(k) => {
-                    subtree.as_object_mut().unwrap().insert(k, v);
-                }
-                None => *subtree = v,
-            },
-        );
+        // add option into config tree
+        if let Err(s) = if o.flags & OptFlag::Multiple as u32 != 0 {
+            println!("{}", o.flags);
+            insert_value(
+                &mut config,
+                o,
+                Value::Array(values.drain(..).map(|v| Value::String(v)).collect()),
+            )
+        } else if values.len() > 0 {
+            insert_value(&mut config, o, Value::String(values.remove(0)))
+        } else {
+            Ok(())
+        } {
+            return Err(s);
+        }
     }
 
     expand_vars(&mut config);
@@ -204,6 +201,35 @@ pub fn expand_vars(root: &mut Value) -> () {
             .filter(|(_, v)| v.is_none())
             .collect();
     }
+}
+
+fn insert_value(config: &mut Value, opt: &Opt, value: Value) -> Result<(), String> {
+    let mut subtree = config;
+    let mut node = "".to_owned();
+
+    // find / create branch
+    for key in opt.get_branch_keys() {
+        node = node + "." + &key;
+        if subtree.is_object() {
+            subtree = { subtree }
+                .as_object_mut()
+                .unwrap()
+                .entry(key)
+                .or_insert(Value::from(Map::new()));
+        }
+        if !subtree.is_object() {
+            return Err(format!("Config tree already has value at {}", node));
+        }
+    }
+
+    // add leaf
+    if let Some(k) = opt.get_leaf_key() {
+        subtree.as_object_mut().unwrap().insert(k, value);
+    } else {
+        *subtree = value;
+    }
+
+    Ok(())
 }
 
 fn get_expansions(node: &Value, expansions: &mut HashMap<String, Option<Value>>) -> () {

@@ -30,7 +30,7 @@ pub struct Opt {
     short: Option<String>,
     long: Option<String>,
     pub env: Option<String>,
-    flags: u32,
+    pub flags: u32,
     pub default: Option<String>,
     pub format: Option<String>,
     usage: Option<String>,
@@ -81,6 +81,9 @@ impl Opt {
                 self.usage.as_ref().map_or("", String::as_str),
                 "",
                 hasarg,
+                // getopts occurrence handling is a bit broken
+                // as it disallows (opt AND multi) or (req AND multi)
+                // so we use Multi and deal with it later
                 getopts::Occur::Multi,
             );
         }
@@ -101,7 +104,7 @@ impl Opt {
     pub fn get_leaf_key(&self) -> Option<String> {
         match self.node.as_ref() {
             "" => None,
-            _ => Some(self.node.split('.').last().unwrap().to_owned())
+            _ => Some(self.node.split('.').last().unwrap().to_owned()),
         }
     }
 

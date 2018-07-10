@@ -242,7 +242,13 @@ where
         if values.len() == 0 {
             if let Some(ref s) = o.default {
                 values.push(s.to_owned());
-            } else if o.flags & OptFlag::Optional as u32 == 0 {
+            }
+        }
+
+        if values.len() == 0 {
+            if o.flags & OptFlag::Optional as u32 != 0 {
+                continue;
+            } else {
                 if let Some(ref n) = name {
                     return Err(format!("Option is required ({})", n));
                 } else {
@@ -264,23 +270,22 @@ where
             }
         }
 
-        // add option into config tree
-        if let Err(s) = if o.flags & OptFlag::Multiple as u32 != 0 {
-            println!("{}", o.flags);
-            insert_value(
-                &mut config,
-                o,
-                Value::Array(values.drain(..).map(|v| Value::String(v)).collect()),
-            )
-        } else if values.len() > 0 {
-            insert_value(&mut config, o, Value::String(values.remove(0)))
-        } else {
-            Ok(())
-        } {
+        // convert to serde_json `String`s
+        let mut values = values.drain(..).map(Value::String).collect::<Vec<_>>();
+
+        // convert to `String` or `Array` depending on flags
+        let mut values = match o.flags & OptFlag::Multiple as u32 {
+            0 => values.remove(0),
+            _ => Value::Array(values),
+        };
+
+        // expand with variable interpolation
+        if let Err(s) = expand_vars(&mut values) {
             return Err(s);
         }
 
-        if let Err(s) = expand_vars(&mut config) {
+        // insert into tree
+        if let Err(s) = insert_value(&mut config, &o.node, values) {
             return Err(s);
         }
     }
@@ -440,30 +445,30 @@ fn concatenate_values(one: Value, other: Value) -> Value {
     }
 }
 
-fn insert_value(config: &mut Value, opt: &Opt, value: Value) -> Result<(), String> {
+fn insert_value(config: &mut Value, path: &str, value: Value) -> Result<(), String> {
     let mut subtree = config;
-    let mut node = "".to_owned();
 
-    let mut branch = if opt.node.len() > 0 {
-        opt.node.split('.').map(String::from).collect::<Vec<_>>()
+    let mut branch = if path.len() > 0 {
+        path.split('.').map(String::from).collect()
     } else {
         Vec::new()
     };
     let leaf = branch.pop();
+    let mut path = String::new();
 
     // find / create branch
     for key in branch {
-        node = node + "." + &key;
         if subtree.is_object() {
             subtree = { subtree }
                 .as_object_mut()
                 .unwrap()
-                .entry(key)
+                .entry(key.clone())
                 .or_insert(Value::Object(Map::new()));
         }
         if !subtree.is_object() {
-            return Err(format!("Config tree already has value at {}", node));
+            return Err(format!("Config tree already has value at {}", path));
         }
+        path = path + "." + &key;
     }
 
     // add leaf

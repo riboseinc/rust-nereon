@@ -37,9 +37,33 @@ use std::io;
 pub mod libucl;
 mod nos;
 
+use nos::opt_to_getopts;
 pub use nos::{Opt, OptFlag};
 
-/// Process command-line options into JSON formatted configuration.
+/// Parse command-line options into JSON formatted configuration.
+///
+/// # Examples
+///
+/// ```
+/// # extern crate nereon;
+/// # use nereon::{Opt, OptFlag};
+/// # use nereon::nereon_json;
+/// let options = vec![
+///     Opt::new(
+///         "username",
+///         Some("u"),
+///         Some("user"),
+///         Some("NEREON_USER"),
+///         0,
+///         Some("admin"),
+///         None,
+///         Some("User name"),
+///     ),
+/// ];
+/// let args = "-u root".split(" ").map(|a| a.to_owned()).collect::<Vec<_>>();
+/// assert_eq!(nereon_json(options, args), Ok("{\"username\":\"root\"}".to_owned()));
+/// ```
+
 pub fn nereon_json<T, U>(options: T, args: U) -> Result<String, String>
 where
     T: IntoIterator<Item = Opt>,
@@ -54,32 +78,32 @@ where
     }
 }
 
-fn value_into_string(v: Value) -> String {
-    match v {
-        Value::Object(_) => "".to_owned(),
-        Value::String(s) => s,
-        _ => format!("{}", v),
-    }
-}
-
-fn concatenate_values(one: Value, other: Value) -> Value {
-    match one {
-        Value::String(s) => match s.len() {
-            0 => other,
-            _ => Value::String(s + &value_into_string(other)),
-        },
-        _ => match other {
-            Value::String(s) => match s.len() {
-                0 => one,
-                _ => Value::String(value_into_string(one) + &s),
-            },
-            _ => Value::String(value_into_string(one) + &value_into_string(other)),
-        },
-    }
-}
-
-/// Process command-line options into a serde_json
+/// Parse command-line options into a serde_json
 /// [`Value`](https://docs.serde.rs/serde_json/value/enum.Value.html).
+///
+/// # Examples
+///
+/// ```
+/// # #[macro_use] extern crate serde_json;
+/// # extern crate nereon;
+/// # use nereon::{Opt, OptFlag};
+/// # use nereon::nereon_init;
+/// let options = vec![
+///     Opt::new(
+///         "username",
+///         Some("u"),
+///         Some("user"),
+///         Some("NEREON_USER"),
+///         0,
+///         Some("admin"),
+///         None,
+///         Some("User name"),
+///     ),
+/// ];
+/// let args = "-u root".split(" ").map(|a| a.to_owned()).collect::<Vec<_>>();
+/// assert_eq!(nereon_init(options, args), Ok(json!({"username" : "root"})));
+/// ```
+
 pub fn nereon_init<T, U>(options: T, args: U) -> Result<Value, String>
 where
     T: IntoIterator<Item = Opt>,
@@ -87,13 +111,14 @@ where
 {
     // collect options and sort by node depth
     let mut options = options.into_iter().collect::<Vec<_>>();
-    options.sort_by(|a, b| a.node_depth().cmp(&b.node_depth()));
+    let depth = |n: &Opt| n.node.matches('.').count();
+    options.sort_by(|a, b| depth(a).cmp(&depth(b)));
 
     // get command line options
     let mut getopts_options = getopts::Options::new();
 
     for o in options.iter() {
-        o.to_getopts(&mut getopts_options);
+        opt_to_getopts(o, &mut getopts_options);
     }
 
     let matches = match getopts_options.parse(args) {
@@ -104,9 +129,14 @@ where
     // build the config tree
     let mut config = Value::from(Map::new());
     for o in options.iter() {
+        let name = match o.long {
+            Some(_) => &o.long,
+            None => &o.short,
+        };
+
         // explicit option is highest priority
-        let mut values = match o.get_name() {
-            Some(n) => matches.opt_strs(n),
+        let mut values = match name {
+            Some(n) => matches.opt_strs(&n),
             None => Vec::new(),
         };
 
@@ -124,7 +154,7 @@ where
             if let Some(ref s) = o.default {
                 values.push(s.to_owned());
             } else if o.flags & OptFlag::Optional as u32 == 0 {
-                if let Some(ref n) = o.get_name() {
+                if let Some(ref n) = name {
                     return Err(format!("Option is required ({})", n));
                 } else {
                     return Err("Required option not supplied".to_owned());
@@ -297,12 +327,39 @@ pub fn expand_vars(root: &mut Value) -> Result<(), String> {
     }
 }
 
+fn value_into_string(v: Value) -> String {
+    match v {
+        Value::Object(_) => "".to_owned(),
+        Value::String(s) => s,
+        _ => format!("{}", v),
+    }
+}
+
+fn concatenate_values(one: Value, other: Value) -> Value {
+    match one {
+        Value::String(s) => match s.len() {
+            0 => other,
+            _ => Value::String(s + &value_into_string(other)),
+        },
+        _ => match other {
+            Value::String(s) => match s.len() {
+                0 => one,
+                _ => Value::String(value_into_string(one) + &s),
+            },
+            _ => Value::String(value_into_string(one) + &value_into_string(other)),
+        },
+    }
+}
+
 fn insert_value(config: &mut Value, opt: &Opt, value: Value) -> Result<(), String> {
     let mut subtree = config;
     let mut node = "".to_owned();
 
+    let mut branch = opt.node.split('.').map(String::from).collect::<Vec<_>>();
+    let leaf = branch.pop();
+
     // find / create branch
-    for key in opt.get_branch_keys() {
+    for key in branch {
         node = node + "." + &key;
         if subtree.is_object() {
             subtree = { subtree }
@@ -317,7 +374,7 @@ fn insert_value(config: &mut Value, opt: &Opt, value: Value) -> Result<(), Strin
     }
 
     // add leaf
-    if let Some(k) = opt.get_leaf_key() {
+    if let Some(k) = leaf {
         subtree.as_object_mut().unwrap().insert(k, value);
     } else {
         *subtree = value;
@@ -502,8 +559,7 @@ mod tests {
             super::expand_str("${env:TEST}", &json!({"greeting":"olá"})),
             Some(Value::String("olá".to_owned()))
         );
-        let src = "\
-                   greeting1 = ${env:TEST}\n\
+        let src = "greeting1 = ${env:TEST}\n\
                    greeting = olá";
         let expected = json!({"greeting":"olá", "greeting1":"olá"});
         assert_eq!(super::ucl_to_value(&mut src.as_bytes()), Ok(expected));

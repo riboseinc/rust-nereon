@@ -24,26 +24,50 @@
 extern crate getopts;
 extern crate regex;
 
-#[derive(Clone)]
+#[derive(Clone, Debug, Default)]
 pub struct Opt {
-    node: String,
-    short: Option<String>,
-    long: Option<String>,
+    /// Dot separated path of destination node for this option. eg. `"root.leaf"`.
+    pub node: String,
+    /// Short option as single character string `"s"` matches `-s`.
+    pub short: Option<String>,
+    /// Long option `"long"` matches `--long`.
+    pub long: Option<String>,
+    /// Environment variable to use if option not parsed from command line.
     pub env: Option<String>,
+    /// `OptFlag` values as `u32`. eg `Multiple as u32 | NoArg as u32`.
     pub flags: u32,
+    /// Value to use if not parsed from command line or environment variable.
     pub default: Option<String>,
+    /// Format the option. This is a simple string format where the first `{}` will be replaced by the parsed value.
     pub format: Option<String>,
-    usage: Option<String>,
+    /// Description of option used to generate the usage message.
+    pub usage: Option<String>,
 }
 
 pub enum OptFlag {
+    /// Option is not required.
     Optional = 1,
+    /// Option can appear more than once.
     Multiple = 2,
+    /// Option doesn;t take an argument.
     NoArg = 4,
+    /// Option may be used with or without an argument.
     OptionalArg = 8,
 }
 
 impl Opt {
+    /// Creates a new `Opt` instance for use with [nereon_init](fn.nereon_init.html)
+    /// or [nereon_json](fn.nereon_json.html)
+    ///
+    /// # Arguments
+    /// * `node` - Dot separated path of destination node for this option. eg. `"root.leaf"`.
+    /// * `short` - Short option as single character string `"s"` matches `-s`.
+    /// * `long` - Long option `"long"` matches `--long`.
+    /// * `env` - Environment variable to use if option not parsed from command line.
+    /// * `flags` - `OptFlag` values as `u32`. eg `Multiple as u32 | NoArg as u32`.
+    /// * `default` - Value to use if not parsed from command line or environment variable.
+    /// * `format` - Format the option. This is a simple string format where the first `{}` will be replaced by the parsed value.
+    /// * `usage` - Description of option used to generate the usage message.
     pub fn new(
         node: &str,
         short: Option<&str>,
@@ -66,7 +90,7 @@ impl Opt {
         }
     }
 
-    pub fn to_getopts(&self, options: &mut getopts::Options) {
+    fn to_getopts(&self, options: &mut getopts::Options) {
         if self.short.is_some() || self.long.is_some() {
             let mut hasarg = getopts::HasArg::Yes;
             if self.flags & OptFlag::NoArg as u32 != 0 {
@@ -88,30 +112,8 @@ impl Opt {
             );
         }
     }
+}
 
-    pub fn node_depth(&self) -> usize {
-        self.node.matches('.').count()
-    }
-
-    pub fn get_branch_keys(&self) -> Vec<String> {
-        let keys = self.node.split('.').collect::<Vec<_>>();
-        keys[..keys.len() - 1]
-            .iter()
-            .map(|&s| s.to_owned())
-            .collect()
-    }
-
-    pub fn get_leaf_key(&self) -> Option<String> {
-        match self.node.as_ref() {
-            "" => None,
-            _ => Some(self.node.split('.').last().unwrap().to_owned()),
-        }
-    }
-
-    pub fn get_name(&self) -> &Option<String> {
-        match self.long {
-            Some(_) => &self.long,
-            _ => &self.short,
-        }
-    }
+pub fn opt_to_getopts(opt: &Opt, options: &mut getopts::Options) {
+    opt.to_getopts(options);
 }

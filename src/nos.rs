@@ -24,9 +24,9 @@
 extern crate getopts;
 extern crate regex;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Opt {
-    /// Dot (`.`) separated path of destination node for this option.
+    /// Dot separated path of destination node for this option. eg. `"root.leaf"`.
     pub node: String,
     /// Short option as single character string `"s"` matches `-s`.
     pub short: Option<String>,
@@ -34,7 +34,7 @@ pub struct Opt {
     pub long: Option<String>,
     /// Environment variable to use if option not parsed from command line.
     pub env: Option<String>,
-    /// OptFlag values as u32 or'd together
+    /// `OptFlag` values as `u32`. eg `Multiple as u32 | NoArg as u32`.
     pub flags: u32,
     /// Value to use if not parsed from command line or environment variable.
     pub default: Option<String>,
@@ -56,6 +56,18 @@ pub enum OptFlag {
 }
 
 impl Opt {
+    /// Creates a new `Opt` instance for use with [nereon_init](fn.nereon_init.html)
+    /// or [nereon_json](fn.nereon_json.html)
+    ///
+    /// # Arguments
+    /// * `node` - Dot separated path of destination node for this option. eg. `"root.leaf"`.
+    /// * `short` - Short option as single character string `"s"` matches `-s`.
+    /// * `long` - Long option `"long"` matches `--long`.
+    /// * `env` - Environment variable to use if option not parsed from command line.
+    /// * `flags` - `OptFlag` values as `u32`. eg `Multiple as u32 | NoArg as u32`.
+    /// * `default` - Value to use if not parsed from command line or environment variable.
+    /// * `format` - Format the option. This is a simple string format where the first `{}` will be replaced by the parsed value.
+    /// * `usage` - Description of option used to generate the usage message.
     pub fn new(
         node: &str,
         short: Option<&str>,

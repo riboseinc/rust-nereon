@@ -21,6 +21,104 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+//! `nereon` is an option parser which creates a JSON representation of data
+//! parsed from a combination of command line options and environment variables.
+//!
+//! Cammand line options are described using [`struct Opt`](struct.Opt.html)
+//!
+//! [`nereon_init`](fn.nereon_init.html) is used to parse the command line options
+//! and returns a [`serde_json::value::Value`](https://docs.serde.rs/serde_json/) tree.
+//!
+//! [`nereon_json`](fn.nereon_json.html) does the same as [`nereon_init`](fn.nereon_init.html)
+//! except it returns a JSON string.
+//!
+//! Variable interpolation is performed so an option passed on the command line
+//! can, for example, be expanded to the contents of a file, which itself will be parsed
+//! and inserted into the JSON structure. Files included in this way can be JSON or
+//! [UCL](https://www.rspamd.com/doc/configuration/ucl.html).
+//!
+//! Options are processed in order and variable interpolation is performed as options are
+//! processed. Later options can therefore use values created by earlier option processing
+//! (as can be seen in the following example).
+//!
+//! For more details on variable interpolation see [`expand_vars`](fn.expand_vars.html).
+//!
+//! *Note:* `nereon` depends on [libucl](https://github.com/vstakhov/libucl). Libucl is a C
+//! that must be installed and accessible to the dynamic linker (via `LD_LIBRARY_PATH`,
+//! `DYLD_LIBRARY_PATH` or similar).
+//!
+//! # Examples
+//!
+//! ```
+//! # #[macro_use] extern crate serde_json;
+//! extern crate nereon;
+//! use nereon::{Opt, nereon_init, ucl_to_value};
+//!
+//! // create an example config file with UCL syntax
+//! std::fs::write("/tmp/nereon_test", r#"
+//!     user "admin" {
+//!         permissions = "${env:nereon_permissions}"
+//!     }
+//! "#);
+//!
+//! // UCL can be loaded and converted into JSON using ucl_to_value
+//! assert_eq!(
+//!     ucl_to_value(&mut std::fs::File::open("/tmp/nereon_test").unwrap()),
+//!     Ok( json!(
+//!         {
+//!             "user" : {
+//!                 "admin" : {
+//!                     // note: ${env:nereon_permissions} expands to ""
+//!                     // as the environment variable isn't set
+//!                     "permissions" : ""
+//!                 }
+//!             }
+//!         }
+//!     ))
+//! );
+//!
+//! // .. or can be expanded during option processing with nereon_init
+//! let options = vec![
+//!     Opt::new(
+//!         "",
+//!         None,
+//!         None,
+//!         Some("nereon_config"),
+//!         0,
+//!         None,
+//!         Some("${file:{}}"),
+//!         Some("Config file"),
+//!     ),
+//!     Opt::new(
+//!         "user.admin.uid",
+//!         Some("u"),
+//!         None,
+//!         None,
+//!         0,
+//!         None,
+//!         None,
+//!         Some("UID of admin user"),
+//!     ),
+//! ];
+//!
+//! let args = "-u 100".split(" ").map(|a| a.to_owned()).collect::<Vec<_>>();
+//!
+//! std::env::set_var("nereon_config", "/tmp/nereon_test");
+//! std::env::set_var("nereon_permissions", "read,write");
+//!
+//! assert_eq!(nereon_init(options, args), Ok(json!(
+//!     {
+//!         "user" : {
+//!             "admin" : {
+//!                 "uid" : "100",
+//!                 "permissions" : "read,write"
+//!             }
+//!         }
+//!     }))
+//! );
+//! std::fs::remove_file("/tmp/nereon_test");
+//! ```
+
 extern crate getopts;
 extern crate regex;
 #[cfg_attr(test, macro_use)]
@@ -48,20 +146,13 @@ pub use nos::{Opt, OptFlag};
 /// # extern crate nereon;
 /// # use nereon::{Opt, OptFlag};
 /// # use nereon::nereon_json;
-/// let options = vec![
-///     Opt::new(
-///         "username",
-///         Some("u"),
-///         Some("user"),
-///         Some("NEREON_USER"),
-///         0,
-///         Some("admin"),
-///         None,
-///         Some("User name"),
-///     ),
-/// ];
+/// let mut opt1: Opt = Default::default();
+/// opt1.node = String::from("username");
+/// opt1.short = Some(String::from("u"));
+/// opt1.default = Some(String::from("admin"));
+/// opt1.usage = Some(String::from("User name"));
 /// let args = "-u root".split(" ").map(|a| a.to_owned()).collect::<Vec<_>>();
-/// assert_eq!(nereon_json(options, args), Ok("{\"username\":\"root\"}".to_owned()));
+/// assert_eq!(nereon_json(vec![opt1], args), Ok("{\"username\":\"root\"}".to_owned()));
 /// ```
 
 pub fn nereon_json<T, U>(options: T, args: U) -> Result<String, String>
@@ -109,10 +200,8 @@ where
     T: IntoIterator<Item = Opt>,
     U: IntoIterator<Item = String>,
 {
-    // collect options and sort by node depth
-    let mut options = options.into_iter().collect::<Vec<_>>();
-    let depth = |n: &Opt| n.node.matches('.').count();
-    options.sort_by(|a, b| depth(a).cmp(&depth(b)));
+    // collect options
+    let options = options.into_iter().collect::<Vec<_>>();
 
     // get command line options
     let mut getopts_options = getopts::Options::new();
@@ -190,12 +279,12 @@ where
         } {
             return Err(s);
         }
-    }
 
-    match expand_vars(&mut config) {
-        Ok(_) => Ok(config),
-        Err(s) => Err(s),
+        if let Err(s) = expand_vars(&mut config) {
+            return Err(s);
+        }
     }
+    Ok(config)
 }
 
 /// Converts UCL formatted data into serde_json
@@ -355,7 +444,11 @@ fn insert_value(config: &mut Value, opt: &Opt, value: Value) -> Result<(), Strin
     let mut subtree = config;
     let mut node = "".to_owned();
 
-    let mut branch = opt.node.split('.').map(String::from).collect::<Vec<_>>();
+    let mut branch = if opt.node.len() > 0 {
+        opt.node.split('.').map(String::from).collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
     let leaf = branch.pop();
 
     // find / create branch
@@ -366,7 +459,7 @@ fn insert_value(config: &mut Value, opt: &Opt, value: Value) -> Result<(), Strin
                 .as_object_mut()
                 .unwrap()
                 .entry(key)
-                .or_insert(Value::from(Map::new()));
+                .or_insert(Value::Object(Map::new()));
         }
         if !subtree.is_object() {
             return Err(format!("Config tree already has value at {}", node));

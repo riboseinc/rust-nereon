@@ -6,52 +6,39 @@ use std::str::Chars;
 #[derive(Debug, PartialEq)]
 pub enum Value {
     String(String),
-    Dict(Vec<(String, Value)>),
+    Dict(HashMap<String, Value>),
     Array(Vec<Value>),
 }
 
 impl Value {
     fn insert(&mut self, mut keys: Vec<String>, mut value: Value) {
+        // self is a dict
+        let map = self.as_dict_mut().unwrap();
         let key = keys.pop().unwrap();
-        let vec = self.as_dict_mut().unwrap();
-        // assumes self is a dict
+
         if keys.len() == 0 {
-            if let Some(idx) = vec.iter().position(|(k, _)| *k == key) {
-                if value.is_dict() {
-                    if vec.get(idx).unwrap().1.is_dict() {
-                        let mut dest = &mut vec.get_mut(idx).unwrap().1;
-                        for (k, v) in value.as_dict_mut().unwrap().drain(..) {
-                            dest.insert(vec![k], v);
-                        }
-                    } else {
-                        vec.remove(idx);
-                        vec.push((key, value));
-                    }
-                } else {
-                    vec.remove(idx);
-                    vec.push((key, value));
-                }
+            // single key so insert in current node
+            if !value.is_dict() {
+                map.insert(key, value);
             } else {
-                vec.push((key, value));
+                let mut old = map.remove(&key)
+                    .unwrap_or_else(|| Value::Dict(HashMap::new()));
+                if old.is_dict() {
+                    for (k, v) in value.as_dict_mut().unwrap().drain() {
+                        old.as_dict_mut().unwrap().insert(k, v);
+                    }
+                    value = old;
+                }
+                map.insert(key, value);
             }
         } else {
-            match vec.iter().position(|(k, _)| *k == key) {
-                Some(idx) => {
-                    if vec.get(idx).unwrap().1.is_dict() {
-                        vec.get_mut(idx).unwrap().1.insert(keys, value);
-                    } else {
-                        vec.remove(idx);
-                        let mut dict = Value::Dict(Vec::new());
-                        dict.insert(keys, value);
-                        vec.push((key, dict));
-                    }
-                }
-                None => {
-                    let mut dict = Value::Dict(Vec::new());
-                    dict.insert(keys, value);
-                    vec.push((key, dict));
-                }
+            let mut node = map.remove(&key)
+                .unwrap_or_else(|| Value::Dict(HashMap::new()));
+            if !node.is_dict() {
+                node = Value::Dict(HashMap::new());
             }
+            node.insert(keys, value);
+            map.insert(key, node);
         }
     }
 
@@ -62,16 +49,16 @@ impl Value {
         }
     }
 
-    fn as_dict<'a>(&'a self) -> Option<&'a Vec<(String, Value)>> {
+    fn as_dict<'a>(&'a self) -> Option<&'a HashMap<String, Value>> {
         match self {
-            Value::Dict(ref vec) => Some(vec),
+            Value::Dict(ref map) => Some(map),
             _ => None,
         }
     }
 
-    fn as_dict_mut<'a>(&'a mut self) -> Option<&'a mut Vec<(String, Value)>> {
+    fn as_dict_mut<'a>(&'a mut self) -> Option<&'a mut HashMap<String, Value>> {
         match self {
-            Value::Dict(ref mut vec) => Some(vec),
+            Value::Dict(ref mut map) => Some(map),
             _ => None,
         }
     }
@@ -84,15 +71,16 @@ impl Value {
     }
 
     fn as_noc_string(&self) -> String {
-        let result = String::new();
         match self {
             Value::String(s) => format!("\"{}\"", s),
             Value::Array(v) => {
                 let values = v.iter().map(|v| v.as_noc_string()).collect::<Vec<_>>();
                 format!("[{}]", values.join(","))
             }
-            Value::Dict(v) => {
-                let values = v.iter().map(|(k, v)| format!("\"{}\" {}", k, v.as_noc_string())).collect::<Vec<_>>();
+            Value::Dict(m) => {
+                let values = m.iter()
+                    .map(|(k, v)| format!("\"{}\" {}", k, v.as_noc_string()))
+                    .collect::<Vec<_>>();
                 format!("{{{}}}", values.join(","))
             }
         }
@@ -142,7 +130,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_dict(&mut self) -> Result<Value, Error> {
-        let mut result = Value::Dict(Vec::new());
+        let mut result = Value::Dict(HashMap::new());
         loop {
             match self.parse_item() {
                 Ok(Some((keys, value))) => {
@@ -374,26 +362,38 @@ mod test {
     #[test]
     fn test_parse() {
         use super::{from_str, Error, ErrorKind, Value};
-        assert_eq!(from_str("").unwrap(), Value::Dict(Vec::new()));
+        use std::collections::HashMap;
+        use std::iter::FromIterator;
+
+        assert_eq!(from_str("").unwrap(), Value::Dict(HashMap::new()));
         assert_eq!(from_str("fail"), Err(Error(0, 4, ErrorKind::NoKey)));
         assert_eq!(
             from_str("key value").unwrap(),
-            Value::Dict(vec![("key".to_owned(), Value::String("value".to_owned()))])
+            Value::Dict(HashMap::from_iter(vec![(
+                "key".to_owned(),
+                Value::String("value".to_owned()),
+            )]))
         );
         assert_eq!(
             from_str(",,,,key value,,,,").unwrap(),
-            Value::Dict(vec![("key".to_owned(), Value::String("value".to_owned()))])
+            Value::Dict(HashMap::from_iter(vec![(
+                "key".to_owned(),
+                Value::String("value".to_owned()),
+            )]))
         );
         assert_eq!(
             from_str("key value\nkey value1").unwrap(),
-            Value::Dict(vec![("key".to_owned(), Value::String("value1".to_owned()))])
+            Value::Dict(HashMap::from_iter(vec![(
+                "key".to_owned(),
+                Value::String("value1".to_owned()),
+            )]))
         );
         assert_eq!(
             from_str("key value\nkey2 value2").unwrap(),
-            Value::Dict(vec![
+            Value::Dict(HashMap::from_iter(vec![
                 ("key".to_owned(), Value::String("value".to_owned())),
                 ("key2".to_owned(), Value::String("value2".to_owned())),
-            ])
+            ]))
         );
         let a = r#""key1" "value1""#;
         assert_eq!(from_str(a).unwrap().as_noc_string(), format!("{{{}}}", a));

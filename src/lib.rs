@@ -138,6 +138,7 @@ mod nos;
 use nos::opt_to_getopts;
 pub use nos::{Opt, OptFlag};
 
+mod noc;
 /// Parse command-line options into JSON formatted configuration.
 ///
 /// # Examples

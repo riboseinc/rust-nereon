@@ -12,34 +12,32 @@ pub enum Value {
 
 impl Value {
     fn insert(&mut self, mut keys: Vec<String>, mut value: Value) {
-        // self is a dict
+        let key = keys.remove(0);
         let map = self.as_dict_mut().unwrap();
-        let key = keys.pop().unwrap();
+        let old_value = map.remove(&key).filter(|v| v.is_dict());
 
-        if keys.len() == 0 {
-            // single key so insert in current node
-            if !value.is_dict() {
-                map.insert(key, value);
-            } else {
-                let mut old = map.remove(&key)
-                    .unwrap_or_else(|| Value::Dict(HashMap::new()));
-                if old.is_dict() {
-                    for (k, v) in value.as_dict_mut().unwrap().drain() {
-                        old.as_dict_mut().unwrap().insert(k, v);
+        map.insert(
+            key,
+            match keys.len() {
+                0 => {
+                    // single key so insert in current node
+                    match (value.is_dict(), old_value) {
+                        (true, Some(Value::Dict(mut existing))) => {
+                            for (k, v) in value.as_dict_mut().unwrap().drain() {
+                                existing.insert(k, v);
+                            }
+                            Value::Dict(existing)
+                        }
+                        _ => value,
                     }
-                    value = old;
                 }
-                map.insert(key, value);
-            }
-        } else {
-            let mut node = map.remove(&key)
-                .unwrap_or_else(|| Value::Dict(HashMap::new()));
-            if !node.is_dict() {
-                node = Value::Dict(HashMap::new());
-            }
-            node.insert(keys, value);
-            map.insert(key, node);
-        }
+                _ => {
+                    let mut node = old_value.unwrap_or_else(|| Value::Dict(HashMap::new()));
+                    node.insert(keys, value);
+                    node
+                }
+            },
+        );
     }
 
     fn as_string(&self) -> Option<&str> {
@@ -78,7 +76,8 @@ impl Value {
                 format!("[{}]", values.join(","))
             }
             Value::Dict(m) => {
-                let values = m.iter()
+                let values = m
+                    .iter()
                     .map(|(k, v)| format!("\"{}\" {}", k, v.as_noc_string()))
                     .collect::<Vec<_>>();
                 format!("{{{}}}", values.join(","))

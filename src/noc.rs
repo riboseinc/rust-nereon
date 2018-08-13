@@ -40,35 +40,63 @@ impl Value {
         );
     }
 
-    fn as_string(&self) -> Option<&str> {
+    pub fn as_string(&self) -> Option<&str> {
         match self {
             Value::String(s) => Some(s.as_ref()),
             _ => None,
         }
     }
 
-    fn as_dict<'a>(&'a self) -> Option<&'a HashMap<String, Value>> {
+    pub fn is_string(&self) -> bool {
+        match self {
+            Value::String(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn as_dict<'a>(&'a self) -> Option<&'a HashMap<String, Value>> {
         match self {
             Value::Dict(ref map) => Some(map),
             _ => None,
         }
     }
 
-    fn as_dict_mut<'a>(&'a mut self) -> Option<&'a mut HashMap<String, Value>> {
+    pub fn as_dict_mut<'a>(&'a mut self) -> Option<&'a mut HashMap<String, Value>> {
         match self {
             Value::Dict(ref mut map) => Some(map),
             _ => None,
         }
     }
 
-    fn is_dict(&self) -> bool {
+    pub fn is_dict(&self) -> bool {
         match self {
             Value::Dict(_) => true,
             _ => false,
         }
     }
 
-    fn as_noc_string(&self) -> String {
+    pub fn as_array<'a>(&'a self) -> Option<&'a Vec<Value>> {
+        match self {
+            Value::Array(ref vec) => Some(vec),
+            _ => None,
+        }
+    }
+
+    pub fn as_array_mut<'a>(&'a mut self) -> Option<&'a mut Vec<Value>> {
+        match self {
+            Value::Array(ref mut vec) => Some(vec),
+            _ => None,
+        }
+    }
+
+    pub fn is_array(&self) -> bool {
+        match self {
+            Value::Array(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn as_noc_string(&self) -> String {
         match self {
             Value::String(s) => format!("\"{}\"", s),
             Value::Array(v) => {
@@ -120,7 +148,7 @@ pub fn from_read(s: &mut io::Read) -> io::Result<Result<Value, Error>> {
 }
 
 impl<'a> Parser<'a> {
-    fn parse(&mut self) -> Result<Value, Error> {
+    pub fn parse(&mut self) -> Result<Value, Error> {
         let result = self.parse_dict();
         match self.src.peek() {
             None => result,
@@ -133,7 +161,7 @@ impl<'a> Parser<'a> {
         loop {
             match self.parse_item() {
                 Ok(Some((keys, value))) => {
-                    if keys.len() == 0 {
+                    if keys.is_empty() {
                         return Err(Error(self.row, self.clm, ErrorKind::NoKey));
                     }
                     result.insert(keys, value);
@@ -150,7 +178,7 @@ impl<'a> Parser<'a> {
         loop {
             match self.parse_item() {
                 Ok(Some((keys, value))) => {
-                    if keys.len() != 0 {
+                    if ! keys.is_empty() {
                         return Err(Error(self.row, self.clm, ErrorKind::HasKey));
                     }
                     result.push(value);
@@ -206,7 +234,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        if values.len() == 0 {
+        if values.is_empty() {
             return Ok(None);
         }
 
@@ -312,7 +340,7 @@ impl<'a> Parser<'a> {
                     self.skip();
                     match self.peek() {
                         Some(c) if escapes.contains_key(&c) => {
-                            result.push(*escapes.get(&c).unwrap())
+                            result.push(escapes[&c])
                         }
                         Some(c) => {
                             result.push('\\');
@@ -334,7 +362,7 @@ impl<'a> Parser<'a> {
         loop {
             match self.peek() {
                 Some(c) if c == ' ' || c == '\t' => self.skip(),
-                x @ _ => return x,
+                x => return x,
             };
         }
     }
@@ -347,7 +375,7 @@ impl<'a> Parser<'a> {
         match self.src.next() {
             Some('\n') => {
                 self.row += 1;
-                self.clm == 0;
+                self.clm = 0;
             }
             Some(_) => self.clm += 1,
             _ => (),

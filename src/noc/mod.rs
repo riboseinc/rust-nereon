@@ -3,6 +3,8 @@ use std::io;
 use std::iter::{FromIterator, Peekable};
 use std::str::Chars;
 
+mod eval;
+
 #[derive(Debug, PartialEq)]
 pub enum Value {
     String(String),
@@ -127,6 +129,10 @@ pub enum ErrorKind {
     NoKey,
     HasKey,
     Missing(char),
+    EOF,
+    UnknownEval(String),
+    Eval(String, String),
+    NoValue,
 }
 
 #[derive(Debug, PartialEq)]
@@ -149,10 +155,12 @@ pub fn from_read(s: &mut io::Read) -> io::Result<Result<Value, Error>> {
 
 impl<'a> Parser<'a> {
     pub fn parse(&mut self) -> Result<Value, Error> {
-        let result = self.parse_dict();
-        match self.src.peek() {
-            None => result,
-            Some(c) => Err(Error(self.row, self.clm, ErrorKind::Unexpected(*c))),
+        match self.parse_dict() {
+            ok @ Ok(_) => match self.peek() {
+                None => ok,
+                Some(c) => Err(self.error(ErrorKind::Unexpected(c))),
+            },
+            err => err,
         }
     }
 
@@ -162,7 +170,7 @@ impl<'a> Parser<'a> {
             match self.parse_item() {
                 Ok(Some((keys, value))) => {
                     if keys.is_empty() {
-                        return Err(Error(self.row, self.clm, ErrorKind::NoKey));
+                        return Err(self.error(ErrorKind::NoKey));
                     }
                     result.insert(keys, value);
                 }
@@ -178,8 +186,8 @@ impl<'a> Parser<'a> {
         loop {
             match self.parse_item() {
                 Ok(Some((keys, value))) => {
-                    if ! keys.is_empty() {
-                        return Err(Error(self.row, self.clm, ErrorKind::HasKey));
+                    if !keys.is_empty() {
+                        return Err(self.error(ErrorKind::HasKey));
                     }
                     result.push(value);
                 }
@@ -217,7 +225,10 @@ impl<'a> Parser<'a> {
                     break;
                 }
                 Ok(None) => break,
-                Err(e) => return Err(e),
+                Err(e) => match e {
+                    Error(_, _, ErrorKind::NoValue) => continue,
+                    _ => return Err(e),
+                },
             }
             if let Some(c) = self.skip_space() {
                 if c == ',' || c == '\n' {
@@ -258,7 +269,7 @@ impl<'a> Parser<'a> {
                             self.skip();
                             Ok(Some(value))
                         }
-                        _ => Err(Error(self.row, self.clm, ErrorKind::Missing('}'))),
+                        _ => Err(self.error(ErrorKind::Missing('}'))),
                     },
                     Err(e) => Err(e),
                 }
@@ -271,7 +282,7 @@ impl<'a> Parser<'a> {
                             self.skip();
                             Ok(Some(value))
                         }
-                        _ => Err(Error(self.row, self.clm, ErrorKind::Missing(']'))),
+                        _ => Err(self.error(ErrorKind::Missing(']'))),
                     },
                     Err(e) => Err(e),
                 }
@@ -293,7 +304,7 @@ impl<'a> Parser<'a> {
                         self.skip();
                         Ok(value)
                     }
-                    _ => Err(Error(self.row, self.clm, ErrorKind::Missing('\"'))),
+                    _ => Err(self.error(ErrorKind::Missing('\"'))),
                 }
             }
             _ => self.parse_bare_string(),
@@ -310,7 +321,25 @@ impl<'a> Parser<'a> {
                 Some(c) if c >= 'A' && c <= 'Z' => result.push(c),
                 Some(c) if c >= '0' && c <= '9' => result.push(c),
                 Some(c) if c == '_' && c <= 'z' => result.push(c),
-                Some(c) => return Err(Error(self.row, self.clm, ErrorKind::Unexpected(c))),
+                Some(c) if c == '(' => {
+                    self.skip();
+                    match self.parse_array() {
+                        Ok(args) => match self.peek() {
+                            Some(c) if c == ')' => {
+                                match self.evaluate(&result, args.as_array().unwrap()) {
+                                    Ok(value) => {
+                                        self.skip();
+                                        return Ok(value);
+                                    }
+                                    Err(e) => return Err(e),
+                                }
+                            }
+                            _ => return Err(self.error(ErrorKind::Missing(')'))),
+                        },
+                        Err(e) => return Err(e),
+                    }
+                }
+                Some(c) => return Err(self.error(ErrorKind::Unexpected(c))),
             }
             self.skip();
         }
@@ -339,9 +368,7 @@ impl<'a> Parser<'a> {
                 Some(c) if c == '\\' => {
                     self.skip();
                     match self.peek() {
-                        Some(c) if escapes.contains_key(&c) => {
-                            result.push(escapes[&c])
-                        }
+                        Some(c) if escapes.contains_key(&c) => result.push(escapes[&c]),
                         Some(c) => {
                             result.push('\\');
                             result.push(c);
@@ -358,6 +385,46 @@ impl<'a> Parser<'a> {
         Value::String(result)
     }
 
+    fn read_value(&mut self) -> Result<String, Error> {
+        // read next value and return as a string
+        let mut braces = Vec::new();
+        let mut result = String::new();
+        loop {
+            if self.is_eof() {
+                return Err(self.error(ErrorKind::EOF));
+            }
+            let c = self.peek().unwrap();
+            if c == ')' && braces.is_empty() {
+                break;
+            }
+            self.skip();
+            if (c == ',' || c == '\n') && braces.is_empty() {
+                break;
+            }
+            result.push(c);
+            if c == '\"' {
+                while !self.is_eof() {
+                    let c = self.get().unwrap();
+                    result.push(c);
+                    if c == '\"' {
+                        break;
+                    }
+                    if c == '\\' && !self.is_eof() {
+                        result.push(self.get().unwrap());
+                    }
+                }
+                continue;
+            }
+            if c == '{' || c == '[' || c == '(' {
+                braces.push(c);
+            }
+            if (c == '}' || c == ']' || c == ')') && braces.pop() != Some(c) {
+                return Err(self.error(ErrorKind::Unexpected(c)));
+            }
+        }
+        Ok(result)
+    }
+
     fn skip_space(&mut self) -> Option<char> {
         loop {
             match self.peek() {
@@ -372,14 +439,38 @@ impl<'a> Parser<'a> {
     }
 
     fn skip(&mut self) {
-        match self.src.next() {
-            Some('\n') => {
+        let _ = self.get();
+    }
+
+    fn get(&mut self) -> Option<char> {
+        let result = self.src.next();
+        if let Some(c) = result {
+            if c == '\n' {
                 self.row += 1;
                 self.clm = 0;
+            } else {
+                self.clm += 1;
             }
-            Some(_) => self.clm += 1,
-            _ => (),
         }
+        result
+    }
+
+    fn is_eof(&mut self) -> bool {
+        self.peek() == None
+    }
+
+    fn evaluate(&mut self, name: &str, args: &Vec<Value>) -> Result<Value, Error> {
+        match name.as_ref() {
+            "let" => Err(self.error(ErrorKind::NoValue)),
+            _ => match eval::evaluate(name, args) {
+                Ok(value) => Ok(value),
+                Err(e) => Err(self.error(e)),
+            },
+        }
+    }
+
+    fn error(&self, error: ErrorKind) -> Error {
+        Error(self.row, self.clm, error)
     }
 }
 

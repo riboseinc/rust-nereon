@@ -56,6 +56,13 @@ impl Value {
         }
     }
 
+    pub fn into_string(self) -> String {
+        match self {
+            Value::String(s) => s,
+            _ => panic!(),
+        }
+    }
+
     pub fn as_dict<'a>(&'a self) -> Option<&'a HashMap<String, Value>> {
         match self {
             Value::Dict(ref map) => Some(map),
@@ -120,19 +127,20 @@ struct Parser<'a> {
     src: &'a mut Peekable<Chars<'a>>,
     row: u32,
     clm: u32,
-    templates: Vec<(String, Value)>,
+    templates: HashMap<String, String>,
 }
 
 #[derive(Debug, PartialEq)]
 pub enum ErrorKind {
     Unexpected(char),
     NoKey,
+    BadKey,
     HasKey,
     Missing(char),
     EOF,
+    BadTemplate,
     UnknownEval(String),
     Eval(String, String),
-    NoValue,
 }
 
 #[derive(Debug, PartialEq)]
@@ -143,7 +151,7 @@ pub fn from_str(s: &str) -> Result<Value, Error> {
         src: &mut s.chars().peekable(),
         row: 0,
         clm: 0,
-        templates: Vec::new(),
+        templates: HashMap::new(),
     }.parse()
 }
 
@@ -155,7 +163,7 @@ pub fn from_read(s: &mut io::Read) -> io::Result<Result<Value, Error>> {
 
 impl<'a> Parser<'a> {
     pub fn parse(&mut self) -> Result<Value, Error> {
-        match self.parse_dict() {
+        match self.parse_dict(&[]) {
             ok @ Ok(_) => match self.peek() {
                 None => ok,
                 Some(c) => Err(self.error(ErrorKind::Unexpected(c))),
@@ -164,106 +172,82 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_dict(&mut self) -> Result<Value, Error> {
+    fn parse_dict(&mut self, args: &[Value]) -> Result<Value, Error> {
         let mut result = Value::Dict(HashMap::new());
         loop {
-            match self.parse_item() {
-                Ok(Some((keys, value))) => {
-                    if keys.is_empty() {
+            match self.parse_values(args) {
+                Ok(mut values) => {
+                    if values.is_empty() {
+                        if self.at_eof() || self.peek().unwrap() == '}' {
+                            break;
+                        }
+                        continue;
+                    }
+                    let value = values.pop().unwrap();
+                    if values.is_empty() {
                         return Err(self.error(ErrorKind::NoKey));
                     }
-                    result.insert(keys, value);
+                    if !values.iter().all(|v| v.is_string()) {
+                        return Err(self.error(ErrorKind::BadKey));
+                    }
+                    result.insert(values.drain(..).map(|v| v.into_string()).collect(), value);
                 }
-                Ok(None) => break,
                 Err(e) => return Err(e),
             }
         }
         Ok(result)
     }
 
-    fn parse_array(&mut self) -> Result<Value, Error> {
+    fn parse_array(&mut self, args: &[Value]) -> Result<Value, Error> {
         let mut result = Vec::new();
         loop {
-            match self.parse_item() {
-                Ok(Some((keys, value))) => {
-                    if !keys.is_empty() {
-                        return Err(self.error(ErrorKind::HasKey));
+            match self.parse_values(args) {
+                Ok(values) => {
+                    if values.is_empty() {
+                        if self.at_eof() || "])".contains(self.peek().unwrap()) {
+                            break;
+                        }
+                        continue;
                     }
-                    result.push(value);
+                    for value in values {
+                        result.push(value);
+                    }
                 }
-                Ok(None) => break,
                 Err(e) => return Err(e),
             }
         }
         Ok(Value::Array(result))
     }
 
-    fn parse_item(&mut self) -> Result<Option<(Vec<String>, Value)>, Error> {
-        // skip empty items
-        loop {
-            match self.skip_space() {
-                Some(c) if c == ']' || c == '}' || c == ')' => return Ok(None),
-                Some(c) if c == ',' || c == '\n' => {
-                    self.skip();
-                    continue;
-                }
-                None => return Ok(None),
-                _ => break,
-            }
-        }
-
+    fn parse_values(&mut self, args: &[Value]) -> Result<Vec<Value>, Error> {
         let mut values = Vec::new();
+
         loop {
-            match self.parse_value() {
-                Ok(Some(value @ Value::String(_))) => values.push(value),
-                Ok(Some(value @ Value::Dict(_))) => {
-                    values.push(value);
-                    break;
-                }
-                Ok(Some(value @ Value::Array(_))) => {
-                    values.push(value);
-                    break;
-                }
-                Ok(None) => break,
-                Err(e) => match e {
-                    Error(_, _, ErrorKind::NoValue) => continue,
-                    _ => return Err(e),
-                },
-            }
             if let Some(c) = self.skip_space() {
                 if c == ',' || c == '\n' {
                     self.skip();
                     break;
                 }
             }
-        }
-
-        // skip item delimiter if any
-        if let Some(c) = self.peek() {
-            if c == ',' || c == '\n' {
-                self.skip();
+            match self.parse_value(args) {
+                Ok(Some(value)) => values.push(value),
+                Ok(None) => {
+                    if self.at_eof() {
+                        break;
+                    }
+                }
+                Err(e) => return Err(e),
             }
         }
-
-        if values.is_empty() {
-            return Ok(None);
-        }
-
-        let value = values.pop().unwrap();
-        let values = values
-            .iter()
-            .map(|v| v.as_string().unwrap().to_owned())
-            .collect();
-
-        Ok(Some((values, value)))
+        Ok(values)
     }
 
-    fn parse_value(&mut self) -> Result<Option<Value>, Error> {
+    fn parse_value(&mut self, args: &[Value]) -> Result<Option<Value>, Error> {
         match self.skip_space() {
             None => Ok(None),
             Some('{') => {
                 self.skip();
-                match self.parse_dict() {
+                match self.parse_dict(args) {
                     Ok(value) => match self.skip_space() {
                         Some('}') => {
                             self.skip();
@@ -276,7 +260,7 @@ impl<'a> Parser<'a> {
             }
             Some('[') => {
                 self.skip();
-                match self.parse_array() {
+                match self.parse_array(args) {
                     Ok(value) => match self.skip_space() {
                         Some(']') => {
                             self.skip();
@@ -287,14 +271,11 @@ impl<'a> Parser<'a> {
                     Err(e) => Err(e),
                 }
             }
-            _ => match self.parse_expression() {
-                Ok(v) => Ok(Some(v)),
-                Err(e) => Err(e),
-            },
+            _ => self.parse_expression(args),
         }
     }
 
-    fn parse_expression(&mut self) -> Result<Value, Error> {
+    fn parse_expression(&mut self, args: &[Value]) -> Result<Option<Value>, Error> {
         match self.peek() {
             Some(c) if c == '\"' => {
                 self.skip();
@@ -302,48 +283,32 @@ impl<'a> Parser<'a> {
                 match self.peek() {
                     Some('\"') => {
                         self.skip();
-                        Ok(value)
+                        Ok(Some(value))
                     }
                     _ => Err(self.error(ErrorKind::Missing('\"'))),
                 }
             }
-            _ => self.parse_bare_string(),
+            _ => self.parse_bare_string(args),
         }
     }
 
-    fn parse_bare_string(&mut self) -> Result<Value, Error> {
+    fn parse_bare_string(&mut self, args: &[Value]) -> Result<Option<Value>, Error> {
         let mut result = String::new();
         loop {
             match self.peek() {
                 None => break,
                 Some(c) if c == ' ' || c == '\t' || c == ',' || c == '\n' => break,
+                Some(c) if c == '}' || c == ']' || c == ')' => break,
                 Some(c) if c >= 'a' && c <= 'z' => result.push(c),
                 Some(c) if c >= 'A' && c <= 'Z' => result.push(c),
                 Some(c) if c >= '0' && c <= '9' => result.push(c),
-                Some(c) if c == '_' && c <= 'z' => result.push(c),
-                Some(c) if c == '(' => {
-                    self.skip();
-                    match self.parse_array() {
-                        Ok(args) => match self.peek() {
-                            Some(c) if c == ')' => {
-                                match self.evaluate(&result, args.as_array().unwrap()) {
-                                    Ok(value) => {
-                                        self.skip();
-                                        return Ok(value);
-                                    }
-                                    Err(e) => return Err(e),
-                                }
-                            }
-                            _ => return Err(self.error(ErrorKind::Missing(')'))),
-                        },
-                        Err(e) => return Err(e),
-                    }
-                }
+                Some(c) if c == '_' => result.push(c),
+                Some(c) if c == '(' => return self.parse_macro(&result, args),
                 Some(c) => return Err(self.error(ErrorKind::Unexpected(c))),
             }
             self.skip();
         }
-        Ok(Value::String(result))
+        Ok(Some(Value::String(result)))
     }
 
     fn parse_quoted_string(&mut self) -> Value {
@@ -385,12 +350,70 @@ impl<'a> Parser<'a> {
         Value::String(result)
     }
 
-    fn read_value(&mut self) -> Result<String, Error> {
+    fn parse_macro(&mut self, name: &str, args: &[Value]) -> Result<Option<Value>, Error> {
+        self.skip();
+        if name == "let" {
+            let id;
+            loop {
+                match self.parse_values(args) {
+                    Ok(mut values) => match values.len() {
+                        0 => {
+                            if let Some(c) = self.peek() {
+                                if c == ']' || c == '}' || c == ')' {
+                                    return Err(self.error(ErrorKind::Unexpected(c)));
+                                }
+                            } else {
+                                return Err(self.error(ErrorKind::EOF));
+                            }
+                        }
+                        1 => {
+                            if values[0].is_string() {
+                                id = values.remove(0).into_string();
+                                break;
+                            } else {
+                                return Err(self.error(ErrorKind::BadTemplate));
+                            }
+                        }
+                        _ => return Err(self.error(ErrorKind::BadTemplate)),
+                    },
+                    Err(e) => return Err(e),
+                }
+            }
+
+            let template = match self.read_template() {
+                Ok(t) => t,
+                Err(e) => return Err(e),
+            };
+
+            self.templates.insert(id, template);
+            Ok(None)
+        } else {
+            match self.parse_array(args) {
+                Ok(args) => match self.peek() {
+                    Some(c) if c == ')' => match self.evaluate(name, args.as_array().unwrap()) {
+                        Ok(Some(value)) => {
+                            self.skip();
+                            Ok(Some(value))
+                        }
+                        Ok(None) => {
+                            self.skip();
+                            Ok(None)
+                        }
+                        Err(e) => Err(e),
+                    },
+                    _ => Err(self.error(ErrorKind::Missing(')'))),
+                },
+                Err(e) => Err(e),
+            }
+        }
+    }
+
+    fn read_template(&mut self) -> Result<String, Error> {
         // read next value and return as a string
         let mut braces = Vec::new();
         let mut result = String::new();
         loop {
-            if self.is_eof() {
+            if self.at_eof() {
                 return Err(self.error(ErrorKind::EOF));
             }
             let c = self.peek().unwrap();
@@ -403,13 +426,13 @@ impl<'a> Parser<'a> {
             }
             result.push(c);
             if c == '\"' {
-                while !self.is_eof() {
+                while !self.at_eof() {
                     let c = self.get().unwrap();
                     result.push(c);
                     if c == '\"' {
                         break;
                     }
-                    if c == '\\' && !self.is_eof() {
+                    if c == '\\' && !self.at_eof() {
                         result.push(self.get().unwrap());
                     }
                 }
@@ -455,15 +478,15 @@ impl<'a> Parser<'a> {
         result
     }
 
-    fn is_eof(&mut self) -> bool {
+    fn at_eof(&mut self) -> bool {
         self.peek() == None
     }
 
-    fn evaluate(&mut self, name: &str, args: &Vec<Value>) -> Result<Value, Error> {
-        match name.as_ref() {
-            "let" => Err(self.error(ErrorKind::NoValue)),
+    fn evaluate(&mut self, name: &str, args: &[Value]) -> Result<Option<Value>, Error> {
+        match name {
+            "let" => Ok(None),
             _ => match eval::evaluate(name, args) {
-                Ok(value) => Ok(value),
+                Ok(value) => Ok(Some(value)),
                 Err(e) => Err(self.error(e)),
             },
         }

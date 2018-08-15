@@ -164,9 +164,9 @@ where
     match nereon_init(options, args) {
         Ok(v) => match serde_json::to_string(&v) {
             Ok(s) => Ok(s),
-            Err(m) => return Err(m.to_string()),
+            Err(m) => Err(m.to_string()),
         },
-        Err(m) => return Err(m),
+        Err(m) => Err(m),
     }
 }
 
@@ -207,8 +207,8 @@ where
     // get command line options
     let mut getopts_options = getopts::Options::new();
 
-    for o in options.iter() {
-        opt_to_getopts(o, &mut getopts_options);
+    for o in &options {
+        opt_to_getopts(&o, &mut getopts_options);
     }
 
     let matches = match getopts_options.parse(args) {
@@ -218,7 +218,7 @@ where
 
     // build the config tree
     let mut config = Value::from(Map::new());
-    for o in options.iter() {
+    for o in &options {
         let name = match o.long {
             Some(_) => &o.long,
             None => &o.short,
@@ -231,7 +231,7 @@ where
         };
 
         // use environment if no value from options
-        if values.len() == 0 {
+        if values.is_empty() {
             if let Some(ref name) = o.env {
                 if let Ok(s) = env::var(name) {
                     values.push(s.to_owned());
@@ -240,21 +240,19 @@ where
         }
 
         // and finally use default if still no value
-        if values.len() == 0 {
+        if values.is_empty() {
             if let Some(ref s) = o.default {
                 values.push(s.to_owned());
             }
         }
 
-        if values.len() == 0 {
+        if values.is_empty() {
             if o.flags & OptFlag::Optional as u32 != 0 {
                 continue;
+            } else if let Some(ref n) = name {
+                return Err(format!("Option is required ({})", n));
             } else {
-                if let Some(ref n) = name {
-                    return Err(format!("Option is required ({})", n));
-                } else {
-                    return Err("Required option not supplied".to_owned());
-                }
+                return Err("Required option not supplied".to_owned());
             }
         }
 
@@ -398,11 +396,11 @@ pub fn expand_vars(root: &mut Value) -> Result<(), String> {
     // perform up to 2 passes so nodes expanded in the
     // first pass are available in second
     for _ in 1..2 {
-        if expansions.len() == 0 {
+        if expansions.is_empty() {
             break;
         }
         // attempt to expand expansions
-        for (k, v) in expansions.iter_mut() {
+        for (k, v) in &mut expansions {
             if v.is_none() {
                 *v = expand_str(k, &root);
             }
@@ -415,7 +413,7 @@ pub fn expand_vars(root: &mut Value) -> Result<(), String> {
             .collect();
     }
 
-    if expansions.len() == 0 {
+    if expansions.is_empty() {
         Ok(())
     } else {
         Err(format!("Expansions failed for {:?}", expansions.keys()))
@@ -449,7 +447,7 @@ fn concatenate_values(one: Value, other: Value) -> Value {
 fn insert_value(config: &mut Value, path: &str, value: Value) -> Result<(), String> {
     let mut subtree = config;
 
-    let mut branch = if path.len() > 0 {
+    let mut branch = if !path.is_empty() {
         path.split('.').map(String::from).collect()
     } else {
         Vec::new()
@@ -519,7 +517,7 @@ fn expand(s: &str, root: &Value) -> Option<Value> {
         Some(p) => {
             let prefix = Value::String(s[..p].to_owned());
             match expand(&s[(p + 2)..], root) {
-                Some(Value::String(s)) => match s.find("}") {
+                Some(Value::String(s)) => match s.find('}') {
                     None => Some(Value::String(s)),
                     Some(e) => {
                         let suffix = Value::String(s[(e + 1)..].to_owned());
@@ -543,9 +541,11 @@ fn expand_var(v: &str, root: &Value) -> Option<Value> {
         Some(p) => {
             let (k, mut v) = v.split_at(p);
             v = &v[1..];
-            match k.as_ref() {
+            match k {
                 "env" => expand(
-                    &env::var(&v).unwrap_or("".to_owned()).replace("$$", "\0"),
+                    &env::var(&v)
+                        .unwrap_or_else(|_| "".to_owned())
+                        .replace("$$", "\0"),
                     &root,
                 ),
                 "file" => match File::open(&v) {

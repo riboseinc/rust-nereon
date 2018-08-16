@@ -21,11 +21,19 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-use super::{ErrorKind, Value};
+extern crate nereon;
+use nereon::noc;
+use std::io;
+use std::io::Write;
 
-pub fn evaluate(name: &str, _args: &[Value]) -> Result<Value, ErrorKind> {
-    match name {
-        "add" => unimplemented!(),
-        _ => Err(ErrorKind::UnknownEval(name.to_owned())),
-    }
+fn main() {
+    let stdin = io::stdin();
+
+    io::stdout().write(
+        noc::from_read(&mut stdin.lock())
+            .unwrap()
+            .unwrap()
+            .as_noc_string()
+            .as_ref(),
+    ).unwrap();
 }

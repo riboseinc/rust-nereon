@@ -235,7 +235,13 @@ impl<'a> Parser<'a> {
         match name {
             "let" => self.create_template(args),
             "apply" => self.apply_template(args),
-            s => self.evaluate(s, args),
+            _ => self
+                .parse_args(args)
+                .and_then(|mut eval_args| {
+                    eval::evaluate(name, &Vec::from_iter(eval_args.drain(..))[..], args)
+                        .or_else(|e| Err(self.error(e)))
+                })
+                .and_then(|v| Ok(Some(v))),
         }
     }
 
@@ -330,15 +336,6 @@ impl<'a> Parser<'a> {
                     }
                 }),
             })
-    }
-
-    fn evaluate(&mut self, name: &str, args: &[Value]) -> Result<Option<Value>, Error> {
-        self.parse_args(args)
-            .and_then(|mut eval_args| {
-                eval::evaluate(name, &Vec::from_iter(eval_args.drain(..))[..], args)
-                    .or_else(|e| Err(self.error(e)))
-            })
-            .and_then(|v| Ok(Some(v)))
     }
 
     fn read_template(&mut self) -> Result<String, Error> {
@@ -510,7 +507,7 @@ mod test {
             from_str(a).unwrap(),
             Value::Dict(HashMap::from_iter(vec![(
                 "key".to_owned(),
-                Value::Array(vec!(Value::String("value".to_owned()))),
+                Value::Array(vec![Value::String("value".to_owned())]),
             )]))
         );
 
@@ -520,7 +517,7 @@ mod test {
             from_str(a).unwrap(),
             Value::Dict(HashMap::from_iter(vec![(
                 "key".to_owned(),
-                Value::Array(vec!(Value::String("value".to_owned()))),
+                Value::Array(vec![Value::String("value".to_owned())]),
             )]))
         );
     }

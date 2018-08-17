@@ -23,15 +23,15 @@
 
 use super::{ErrorKind, Value};
 
-pub fn evaluate(name: &str, eval_args: &[Value], args: &[Value]) -> Result<Value, ErrorKind> {
+pub fn evaluate(name: &str, eval_args: &[Value], apply_args: &[Value]) -> Result<Value, ErrorKind> {
     match name {
-        "add" => unimplemented!(),
-        "arg" => arg(eval_args, args),
+        "add" => add(eval_args),
+        "arg" => arg(eval_args, apply_args),
         _ => Err(ErrorKind::UnknownEval(name.to_owned())),
     }
 }
 
-fn arg(eval_args: &[Value], args: &[Value]) -> Result<Value, ErrorKind> {
+fn arg(eval_args: &[Value], apply_args: &[Value]) -> Result<Value, ErrorKind> {
     match eval_args.len() {
         1 => Ok(&eval_args[0]),
         _ => Err(ErrorKind::BadArg("arg(int)".to_owned())),
@@ -43,8 +43,12 @@ fn arg(eval_args: &[Value], args: &[Value]) -> Result<Value, ErrorKind> {
             Ok(num) => Ok(num),
             Err(e) => Err(ErrorKind::BadArg(format!("arg(int): {:?}", e))),
         })
-        .and_then(|num| match args.get(num) {
+        .and_then(|num| match apply_args.get(num) {
             Some(value) => Ok((*value).clone()),
             None => Err(ErrorKind::BadArg(format!("arg({}): not enough args", num))),
         })
+}
+
+fn add(_args: &[Value]) -> Result<Value, ErrorKind> {
+    unimplemented!()
 }

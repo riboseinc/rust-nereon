@@ -35,7 +35,14 @@ struct Parser<'a> {
     src: &'a mut Peekable<Chars<'a>>,
     row: u32,
     clm: u32,
-    templates: Option<HashMap<String, String>>,
+    templates: Option<HashMap<String, Template>>,
+}
+
+#[derive(Debug, Clone)]
+struct Template {
+    row: u32,
+    clm: u32,
+    template: String,
 }
 
 #[derive(Debug, PartialEq)]
@@ -45,8 +52,10 @@ pub enum ErrorKind {
     Missing(char),
     EOF,
     BadTemplate,
+    MissingTemplate(String),
+    BadArg(String),
     UnknownEval(String),
-    Eval(String, String),
+    BadEval(String, String),
     Temp,
 }
 
@@ -87,13 +96,7 @@ pub fn from_read(s: &mut io::Read) -> io::Result<Result<Value, Error>> {
 
 impl<'a> Parser<'a> {
     pub fn parse(&mut self) -> Result<Value, Error> {
-        match self.parse_dict(&[]) {
-            ok @ Ok(_) => match self.peek() {
-                None => ok,
-                Some(c) => Err(self.error(ErrorKind::Unexpected(c))),
-            },
-            err => err,
-        }
+        self.parse_dict(&[]).and_then(|v| self.expect(v, None))
     }
 
     fn parse_dict(&mut self, args: &[Value]) -> Result<Value, Error> {
@@ -111,8 +114,7 @@ impl<'a> Parser<'a> {
                         }
                         result.insert(values.drain(..).map(|v| v.into_string()).collect(), value);
                     }
-                    match self.peek() {
-                        Some(c) if is_sep(c) => self.skip(),
+                    match self.skip_sep() {
                         Some(c) if is_close(c) => break,
                         Some(_) => (),
                         None => break,
@@ -125,81 +127,50 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_keyed_value(&mut self, args: &[Value]) -> Result<VecDeque<Value>, Error> {
-        match self.parse_value(args) {
-            Ok(None) => match self.peek() {
-                Some(c) if is_sep(c) => {
-                    self.skip();
-                    Ok(VecDeque::new())
-                }
-                Some(c) if is_close(c) => Ok(VecDeque::new()),
+        self.parse_value(args).and_then(|v| match v {
+            None => match self.peek() {
+                Some(c) if is_sep(c) || is_close(c) => Ok(VecDeque::new()),
                 None => Ok(VecDeque::new()),
                 _ => self.parse_keyed_value(args),
             },
-            Ok(Some(value)) => match self.parse_keyed_value(args) {
-                Ok(mut values) => {
-                    values.push_front(value);
-                    Ok(values)
-                }
-                e => e,
-            },
-            Err(e) => Err(e),
-        }
+            Some(value) => self.parse_keyed_value(args).and_then(|mut values| {
+                values.push_front(value);
+                Ok(values)
+            }),
+        })
     }
 
     fn parse_value(&mut self, args: &[Value]) -> Result<Option<Value>, Error> {
-        match self.skip_space() {
+        let result = match self.skip_space() {
             Some(c) if is_close(c) || is_sep(c) => Ok(None),
             None => Ok(None),
             Some('{') => {
                 self.skip();
-                match self.parse_dict(args) {
-                    Ok(value) => match self.peek() {
-                        Some('}') => {
-                            self.skip();
-                            self.skip_space();
-                            Ok(Some(value))
-                        }
-                        Some(c) => Err(self.error(ErrorKind::Unexpected(c))),
-                        None => Err(self.error(ErrorKind::Missing('}'))),
-                    },
-                    Err(e) => Err(e),
-                }
+                self.parse_dict(args)
+                    .and_then(|v| self.expect(v, Some('}')))
+                    .and_then(|v| Ok(Some(v)))
             }
             Some('[') => {
                 self.skip();
-                match self.parse_list(args) {
-                    Ok(mut values) => match self.peek() {
-                        Some(']') => {
-                            self.skip();
-                            self.skip_space();
-                            Ok(Some(Value::Array(Vec::from_iter(values.drain(..)))))
-                        }
-                        Some(c) => Err(self.error(ErrorKind::Unexpected(c))),
-                        None => Err(self.error(ErrorKind::EOF)),
-                    },
-                    Err(e) => Err(e),
-                }
+                self.parse_list(args)
+                    .and_then(|v| self.expect(v, Some(']')))
+                    .and_then(|mut v| Ok(Some(Value::Array(Vec::from_iter(v.drain(..))))))
             }
-            _ => {
-                let result = self.parse_expression(args);
-                if result.is_ok() {
-                    self.skip_space();
-                }
-                result
-            }
+            _ => self.parse_expression(args),
+        };
+        if result.is_ok() {
+            self.skip_space();
         }
+        result
     }
 
     fn parse_expression(&mut self, args: &[Value]) -> Result<Option<Value>, Error> {
         match self.peek() {
             Some(c) if c == '\"' => {
                 self.skip();
-                let value = self.parse_quoted_string();
-                match self.get() {
-                    // Some('\"') or None
-                    Some(_) => Ok(Some(value)),
-                    _ => Err(self.error(ErrorKind::Missing('\"'))),
-                }
+                Ok(self.parse_quoted_string())
+                    .and_then(|v| self.expect(v, Some('\"')))
+                    .and_then(|v| Ok(Some(v)))
             }
             _ => self.parse_bare_string(args),
         }
@@ -271,104 +242,103 @@ impl<'a> Parser<'a> {
     // parse all values up to but not including the next block terminator '}', ']', ')' or EOF
     // ',' and '\n' are treated as whitespace
     fn parse_list(&mut self, args: &[Value]) -> Result<VecDeque<Value>, Error> {
-        match self.parse_value(args) {
-            Ok(value) => {
-                if let Some(c) = self.peek() {
-                    if is_sep(c) {
-                        self.skip();
-                    }
-                }
-                match value {
-                    None => match self.peek() {
-                        Some(c) if is_close(c) => Ok(VecDeque::new()),
-                        None => Ok(VecDeque::new()),
-                        _ => self.parse_list(args),
-                    },
-                    Some(value) => match self.parse_list(args) {
-                        Ok(mut values) => {
-                            values.push_front(value);
-                            Ok(values)
-                        }
-                        e => e,
-                    },
-                }
+        self.parse_value(args).and_then(|value| {
+            self.skip_sep();
+            match value {
+                None => match self.peek() {
+                    Some(c) if is_close(c) => Ok(VecDeque::new()),
+                    None => Ok(VecDeque::new()),
+                    _ => self.parse_list(args),
+                },
+                Some(value) => self.parse_list(args).and_then(|mut values| {
+                    values.push_front(value);
+                    Ok(values)
+                }),
             }
-            Err(e) => Err(e),
-        }
+        })
     }
 
     fn parse_args(&mut self, args: &[Value]) -> Result<VecDeque<Value>, Error> {
-        match self.parse_list(args) {
-            result @ Ok(_) => match self.get() {
-                Some(')') => result,
-                Some(c) => Err(self.error(ErrorKind::Unexpected(c))),
-                None => Err(self.error(ErrorKind::EOF)),
-            },
-            e => e,
-        }
+        self.parse_list(args)
+            .and_then(|v| self.expect(v, Some(')')))
     }
 
     fn parse_arg(&mut self, args: &[Value]) -> Result<Option<Value>, Error> {
-        match self.parse_value(args) {
-            Ok(None) => match self.peek() {
-                Some(c) if is_sep(c) => {
-                    self.skip();
-                    self.parse_arg(args)
-                }
-                _ => Ok(None),
+        self.parse_value(args).and_then(|arg| match arg {
+            None => match self.skip_sep() {
+                None => Ok(None),
+                Some(c) if is_close(c) => Ok(None),
+                _ => self.parse_arg(args),
             },
-            v => v,
-        }
+            _ => Ok(arg),
+        })
     }
 
     fn create_template(&mut self, args: &[Value]) -> Result<Option<Value>, Error> {
-        let name = match self.parse_arg(args) {
-            Ok(Some(v)) => {
-                if v.is_string() {
-                    v.into_string()
-                } else {
-                    return Err(self.error(ErrorKind::BadKey));
-                }
-            }
-            Ok(_) => return Err(self.error(ErrorKind::BadKey)),
-            error => return error,
-        };
-        println!("name [{}], next [{:?}]", name, self.peek());
-
-        let template = match self.read_template() {
-            Ok(t) => t,
-            Err(e) => return Err(e),
-        };
-        println!("template [{}]", template);
-        self.templates.as_mut().unwrap().insert(name, template);
-        Ok(None)
+        self.parse_arg(args).and_then(|name| {
+            match name.filter(|name| name.is_string()) {
+                Some(name) => Ok(name.into_string()),
+                _ => Err(self.error(ErrorKind::BadKey)),
+            }.and_then(|name| {
+                self.skip_sep();
+                let row = self.row;
+                let clm = self.clm;
+                self.read_template()
+                    .and_then(|template| self.expect(template, Some(')')))
+                    .and_then(|template| {
+                        self.templates.as_mut().unwrap().insert(
+                            name,
+                            Template {
+                                row: row,
+                                clm: clm,
+                                template: template,
+                            },
+                        );
+                        Ok(None)
+                    })
+            })
+        })
     }
 
     fn apply_template(&mut self, args: &[Value]) -> Result<Option<Value>, Error> {
-        unimplemented!();
-        //match self.parse_args(args);
-        //match self.templates.map(|templates| templates.contains(
-        //    let templates = self.templates.take().unwrap();
-
-        //    let parser = Parser::new()
+        let bad_name = "Template name should be a string";
+        self.parse_args(args)
+            .and_then(|mut apply_args| match apply_args.pop_front() {
+                None => Err(self.error(ErrorKind::BadArg(bad_name.to_owned()))),
+                Some(name) => match name.as_string() {
+                    Some(name) => Ok(name),
+                    None => Err(self.error(ErrorKind::BadArg(bad_name.to_owned()))),
+                }.and_then(|name| {
+                    let templates = self.templates.take().unwrap();
+                    if let Some(template) = templates.get(name).and_then(|v| Some(v.clone())) {
+                        let mut parser = Parser {
+                            src: &mut template.template.chars().peekable(),
+                            row: template.row,
+                            clm: template.clm,
+                            templates: Some(templates),
+                        };
+                        let result = parser
+                            .parse_value(&Vec::from_iter(apply_args.drain(..)))
+                            .and_then(|value| match parser.skip_sep() {
+                                None => Ok(value),
+                                Some(c) => Err(parser.error(ErrorKind::Unexpected(c))),
+                            });
+                        self.templates = parser.templates.take();
+                        result
+                    } else {
+                        Err(self.error(ErrorKind::MissingTemplate(name.to_owned())))
+                    }
+                }),
+            })
     }
 
     fn evaluate(&mut self, name: &str, args: &[Value]) -> Result<Option<Value>, Error> {
-        match self.parse_args(args) {
-            Ok(mut args) => match self.peek() {
-                Some(c) if c == ')' => {
-                    match eval::evaluate(name, &args.drain(..).collect::<Vec<_>>()[..]) {
-                        Ok(value) => {
-                            self.skip();
-                            Ok(Some(value))
-                        }
-                        Err(e) => Err(self.error(e)),
-                    }
-                }
-                _ => Err(self.error(ErrorKind::Missing(')'))),
-            },
-            Err(e) => Err(e),
-        }
+        self.parse_args(args)
+            .and_then(|mut eval_args| {
+                eval::evaluate(name, &Vec::from_iter(eval_args.drain(..))[..], args)
+                    .or_else(|e| Err(self.error(e)))
+            })
+            .and_then(|v| Ok(Some(v)))
     }
 
     fn read_template(&mut self) -> Result<String, Error> {
@@ -376,38 +346,42 @@ impl<'a> Parser<'a> {
         let mut braces = Vec::new();
         let mut result = String::new();
         loop {
-            if self.at_eof() {
-                return Err(self.error(ErrorKind::EOF));
-            }
-            let c = self.peek().unwrap();
-            if c == ')' && braces.is_empty() {
-                self.skip();
-                break;
-            }
-            self.skip();
-            if (c == ',' || c == '\n') && braces.is_empty() {
-                break;
-            }
-            result.push(c);
-            if c == '\"' {
-                while !self.at_eof() {
-                    let c = self.get().unwrap();
+            match self.peek() {
+                None => return Err(self.error(ErrorKind::EOF)),
+                Some(c) if (is_sep(c) || c == ')') && braces.is_empty() => break,
+                Some(c) if c == '{' || c == '[' || c == '(' => {
                     result.push(c);
-                    if c == '\"' {
-                        break;
-                    }
-                    if c == '\\' && !self.at_eof() {
-                        result.push(self.get().unwrap());
+                    braces.push(c);
+                }
+                Some(c) if c == '}' || c == ']' || c == ')' => {
+                    result.push(c);
+                    match braces.pop() {
+                        Some('{') if c == '}' => (),
+                        Some('[') if c == ']' => (),
+                        Some('(') if c == ')' => (),
+                        _ => return Err(self.error(ErrorKind::Unexpected(c))),
                     }
                 }
-                continue;
+                Some(c) if c == '\"' => {
+                    result.push(c);
+                    self.skip();
+                    while let Some(c) = self.peek() {
+                        result.push(c);
+                        if c == '\"' {
+                            break;
+                        }
+                        self.skip();
+                        if c == '\\' {
+                            self.skip();
+                            if let Some(c) = self.peek() {
+                                result.push(c);
+                            }
+                        }
+                    }
+                }
+                Some(c) => result.push(c),
             }
-            if c == '{' || c == '[' || c == '(' {
-                braces.push(c);
-            }
-            if (c == '}' || c == ']' || c == ')') && braces.pop() != Some(c) {
-                return Err(self.error(ErrorKind::Unexpected(c)));
-            }
+            self.skip();
         }
         Ok(result)
     }
@@ -429,6 +403,15 @@ impl<'a> Parser<'a> {
         let _ = self.get();
     }
 
+    fn skip_sep(&mut self) -> Option<char> {
+        loop {
+            match self.skip_space() {
+                Some(c) if is_sep(c) => self.skip(),
+                o => return o,
+            }
+        }
+    }
+
     fn get(&mut self) -> Option<char> {
         let result = self.src.next();
         if let Some(c) = result {
@@ -442,12 +425,19 @@ impl<'a> Parser<'a> {
         result
     }
 
-    fn at_eof(&mut self) -> bool {
-        self.peek() == None
-    }
-
     fn error(&self, error: ErrorKind) -> Error {
         Error(self.row, self.clm, error)
+    }
+
+    fn expect<V>(&mut self, value: V, c: Option<char>) -> Result<V, Error> {
+        match self.peek() {
+            cc if cc == c => {
+                self.skip();
+                Ok(value)
+            }
+            Some(cc) => Err(self.error(ErrorKind::Unexpected(cc))),
+            None => Err(self.error(ErrorKind::EOF)),
+        }
     }
 }
 
@@ -504,14 +494,33 @@ mod test {
         let a = "test {]";
         assert_eq!(from_str(a).unwrap_err().kind(), &ErrorKind::Unexpected(']'));
 
-        let a = r#"let(template, value)
-key apply(template)
-"#;
+        let a = r#"let(template, value),
+ key apply(template)"#;
         assert_eq!(
             from_str(a).unwrap(),
             Value::Dict(HashMap::from_iter(vec![(
                 "key".to_owned(),
                 Value::String("value".to_owned()),
+            )]))
+        );
+
+        let a = r#"let(template, [value])
+                   key apply(template)"#;
+        assert_eq!(
+            from_str(a).unwrap(),
+            Value::Dict(HashMap::from_iter(vec![(
+                "key".to_owned(),
+                Value::Array(vec!(Value::String("value".to_owned()))),
+            )]))
+        );
+
+        let a = r#"let(template, arg(0))
+                   key apply(template [value])"#;
+        assert_eq!(
+            from_str(a).unwrap(),
+            Value::Dict(HashMap::from_iter(vec![(
+                "key".to_owned(),
+                Value::Array(vec!(Value::String("value".to_owned()))),
             )]))
         );
     }

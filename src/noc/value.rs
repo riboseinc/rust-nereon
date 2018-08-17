@@ -23,7 +23,7 @@
 
 use std::collections::HashMap;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Value {
     String(String),
     Dict(HashMap<String, Value>),

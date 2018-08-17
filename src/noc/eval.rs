@@ -23,9 +23,28 @@
 
 use super::{ErrorKind, Value};
 
-pub fn evaluate(name: &str, _args: &[Value]) -> Result<Value, ErrorKind> {
+pub fn evaluate(name: &str, eval_args: &[Value], args: &[Value]) -> Result<Value, ErrorKind> {
     match name {
         "add" => unimplemented!(),
+        "arg" => arg(eval_args, args),
         _ => Err(ErrorKind::UnknownEval(name.to_owned())),
     }
+}
+
+fn arg(eval_args: &[Value], args: &[Value]) -> Result<Value, ErrorKind> {
+    match eval_args.len() {
+        1 => Ok(&eval_args[0]),
+        _ => Err(ErrorKind::BadArg("arg(int)".to_owned())),
+    }.and_then(|arg| match arg.as_string() {
+        Some(arg) => Ok(arg),
+        None => Err(ErrorKind::BadArg(format!("arg(int): Not an int {:?}", arg))),
+    })
+        .and_then(|num| match num.parse::<usize>() {
+            Ok(num) => Ok(num),
+            Err(e) => Err(ErrorKind::BadArg(format!("arg(int): {:?}", e))),
+        })
+        .and_then(|num| match args.get(num) {
+            Some(value) => Ok((*value).clone()),
+            None => Err(ErrorKind::BadArg(format!("arg({}): not enough args", num))),
+        })
 }

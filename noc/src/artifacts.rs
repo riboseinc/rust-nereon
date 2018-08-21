@@ -21,19 +21,30 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-extern crate nereon;
-use nereon::noc;
-use std::io;
-use std::io::Write;
+use tiny_http::{Header, Response, StatusCode};
 
-fn main() {
-    let stdin = io::stdin();
+pub fn html() -> Response<&'static [u8]> {
+    artifact("text/html", include_bytes!("noc.html"))
+}
 
-    io::stdout().write(
-        noc::from_read(&mut stdin.lock())
-            .unwrap()
-            .unwrap()
-            .as_noc_string()
-            .as_ref(),
-    ).unwrap();
+pub fn js() -> Response<&'static [u8]> {
+    artifact("application/javascript", include_bytes!("noc.js"))
+}
+
+pub fn css() -> Response<&'static [u8]> {
+    artifact("text/css", include_bytes!("noc.css"))
+}
+
+pub fn favicon() -> Response<&'static [u8]> {
+    artifact("image/x-icon", include_bytes!("noc.png"))
+}
+
+fn artifact<'a>(mime: &str, src: &'a [u8]) -> Response<&'a [u8]> {
+    Response::new(
+        StatusCode(200),
+        vec![Header::from_bytes("Content-Type", mime).unwrap()],
+        src,
+        Some(src.len()),
+        None,
+    )
 }

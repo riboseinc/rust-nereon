@@ -9,6 +9,9 @@ readme = "README.md"
 
 exclude = ["/**/*~"]
 
+[workspace]
+members = ["noc"]
+
 [dependencies]
 getopts = "0.2"
 regex = "0.2"

@@ -124,18 +124,33 @@ impl Value {
     }
 
     pub fn as_noc_string(&self) -> String {
+        self.as_noc_string_indented("")
+    }
+
+    fn as_noc_string_indented(&self, indent: &str) -> String {
         match self {
             Value::String(s) => format!("\"{}\"", s),
             Value::Array(v) => {
-                let values = v.iter().map(|v| v.as_noc_string()).collect::<Vec<_>>();
-                format!("[{}]", values.join(","))
+                let values = v
+                    .iter()
+                    .map(|v| v.as_noc_string_indented(&(indent.to_owned() + "\t")))
+                    .collect::<Vec<_>>();
+                format!("[{}]", values.join(" "))
             }
             Value::Dict(m) => {
+                let next_indent = indent.to_owned() + "\t";
                 let values = m
                     .iter()
-                    .map(|(k, v)| format!("\"{}\" {}", k, v.as_noc_string()))
+                    .map(|(k, v)| {
+                        format!(
+                            "{}\"{}\" {}",
+                            next_indent,
+                            k,
+                            v.as_noc_string_indented(&next_indent)
+                        )
+                    })
                     .collect::<Vec<_>>();
-                format!("{{{}}}", values.join(","))
+                format!("{{\n{}\n{}}}", values.join("\n"), indent)
             }
         }
     }

@@ -1,0 +1,60 @@
+#noc-out {
+    white-space: pre;
+}
+
+html {
+    height: 100%;
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+}
+
+dl {
+    position: relative;
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    width: 100%;
+}
+
+dt {
+    width: 50%;
+    height: 100%;
+    padding: 1em;
+    box-sizing: border-box;
+}
+
+textarea {
+    border: none;
+    margin: 0;
+    padding: 1em;
+    width: 100%;
+    height: 100%;
+    background: #efefef;
+    resize: vertical;
+    box-sizing: border-box;
+}
+
+dd {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    margin: 0;
+    padding: 1em;
+    width: 50%;
+    height: 100%;
+    box-sizing: border-box;
+}
+
+#noc-out {
+    padding: 1em;
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background: #efefef;
+    box-sizing: border-box;
+}

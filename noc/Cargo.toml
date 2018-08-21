@@ -1,0 +1,9 @@
+[package]
+name = "noc"
+version = "0.1.0"
+license = "BSD-2-Clause"
+
+[dependencies]
+getopts = "0.2"
+nereon = { path = "../" }
+tiny_http = "0.6"

@@ -292,14 +292,10 @@ impl<'a> Parser<'a> {
                 self.read_template()
                     .and_then(|template| self.expect(template, Some(')')))
                     .and_then(|template| {
-                        self.templates.as_mut().unwrap().insert(
-                            name,
-                            Template {
-                                row: row,
-                                clm: clm,
-                                template: template,
-                            },
-                        );
+                        self.templates
+                            .as_mut()
+                            .unwrap()
+                            .insert(name, Template { row, clm, template });
                         Ok(None)
                     })
             })

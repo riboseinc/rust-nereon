@@ -110,7 +110,7 @@ fn handle_request(mut req: Request) -> io::Result<()> {
                 let mut body = String::new();
                 if req.as_reader().read_to_string(&mut body).is_ok() {
                     req.respond(Response::from_string(match nereon::noc::from_str(&body) {
-                        Ok(s) => s.as_noc_string(),
+                        Ok(s) => s.as_noc_string_pretty(),
                         Err(e) => format!("{:?}", e),
                     }))
                 } else {

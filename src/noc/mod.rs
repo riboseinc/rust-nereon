@@ -133,9 +133,9 @@ impl<'a> Parser<'a> {
                 None => Ok(VecDeque::new()),
                 _ => self.parse_keyed_value(args),
             },
-            Some(value) => self.parse_keyed_value(args).and_then(|mut values| {
+            Some(value) => self.parse_keyed_value(args).map(|mut values| {
                 values.push_front(value);
-                Ok(values)
+                values
             }),
         })
     }
@@ -148,13 +148,13 @@ impl<'a> Parser<'a> {
                 self.skip();
                 self.parse_dict(args)
                     .and_then(|v| self.expect(v, Some('}')))
-                    .and_then(|v| Ok(Some(v)))
+                    .map(|v| Some(v))
             }
             Some('[') => {
                 self.skip();
                 self.parse_list(args)
                     .and_then(|v| self.expect(v, Some(']')))
-                    .and_then(|mut v| Ok(Some(Value::Array(Vec::from_iter(v.drain(..))))))
+                    .map(|mut v| Some(Value::Array(Vec::from_iter(v.drain(..)))))
             }
             _ => self.parse_expression(args),
         };
@@ -170,7 +170,7 @@ impl<'a> Parser<'a> {
                 self.skip();
                 Ok(self.parse_quoted_string())
                     .and_then(|v| self.expect(v, Some('\"')))
-                    .and_then(|v| Ok(Some(v)))
+                    .map(|v| Some(v))
             }
             _ => self.parse_bare_string(args),
         }
@@ -239,9 +239,9 @@ impl<'a> Parser<'a> {
                 .parse_args(args)
                 .and_then(|mut eval_args| {
                     eval::evaluate(name, &Vec::from_iter(eval_args.drain(..))[..], args)
-                        .or_else(|e| Err(self.error(e)))
+                        .map_err(|e| self.error(e))
                 })
-                .and_then(|v| Ok(Some(v))),
+                .map(|v| Some(v)),
         }
     }
 
@@ -256,9 +256,9 @@ impl<'a> Parser<'a> {
                     None => Ok(VecDeque::new()),
                     _ => self.parse_list(args),
                 },
-                Some(value) => self.parse_list(args).and_then(|mut values| {
+                Some(value) => self.parse_list(args).map(|mut values| {
                     values.push_front(value);
-                    Ok(values)
+                    values
                 }),
             }
         })
@@ -291,12 +291,12 @@ impl<'a> Parser<'a> {
                 let clm = self.clm;
                 self.read_template()
                     .and_then(|template| self.expect(template, Some(')')))
-                    .and_then(|template| {
+                    .map(|template| {
                         self.templates
                             .as_mut()
                             .unwrap()
                             .insert(name, Template { row, clm, template });
-                        Ok(None)
+                        None
                     })
             })
         })
@@ -312,7 +312,7 @@ impl<'a> Parser<'a> {
                     None => Err(self.error(ErrorKind::BadArg(bad_name.to_owned()))),
                 }.and_then(|name| {
                     let templates = self.templates.take().unwrap();
-                    if let Some(template) = templates.get(name).and_then(|v| Some(v.clone())) {
+                    if let Some(template) = templates.get(name).map(|v| v.clone()) {
                         let mut parser = Parser {
                             src: &mut template.template.chars().peekable(),
                             row: template.row,

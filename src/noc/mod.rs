@@ -22,7 +22,7 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 use nom::types::CompleteStr;
-use nom::{is_alphanumeric, multispace0, multispace1, space0, ErrorKind, IResult, Needed};
+use nom::{is_alphanumeric, multispace0, space0, space1, ErrorKind, IResult, Needed};
 use std::collections::{HashMap, VecDeque};
 use std::io;
 
@@ -60,12 +60,12 @@ fn parse(input: CompleteStr) -> Result<Value, String> {
         templates: Vec::new(),
         args: Vec::new(),
     };
-    dbg_dmp!(input,do_parse!(
-//        input,
+    do_parse!(
+        input,
         space0 >>
             dict: apply!(parse_dict, &mut state) >>
             (dict)
-    )).map_err(|e| {
+    ).map_err(|e| {
         println!("{:?}", e);
         format!("Parse error: {:?}", e)
     }) // TODO
@@ -78,7 +78,11 @@ fn parse(input: CompleteStr) -> Result<Value, String> {
 fn parse_dict<'a>(input: CompleteStr<'a>, state: &mut State) -> IResult<CompleteStr<'a>, Value> {
     fold_many0!(
         input,
-        apply!(parse_keyed_value, state),
+        do_parse!(
+            result: apply!(parse_keyed_value, state)
+                >> many0!(alt!(tag!(",") | multispace0))
+                >> (result)
+        ),
         Value::Dict(HashMap::new()),
         |mut acc: Value, o| {
             if let Some((keys, value)) = o {
@@ -93,31 +97,29 @@ fn parse_keyed_value<'a>(
     input: CompleteStr<'a>,
     state: &mut State,
 ) -> IResult<CompleteStr<'a>, Option<(Vec<String>, Value)>> {
-    dbg_dmp!(
+    println!("parse keyed");
+    do_parse!(
         input,
-        do_parse!(
-            //        input,
-            result:
-                map_res!(
-                    many0!(apply!(parse_value, state)),
-                    |vs: Vec<Option<Value>>| {
-                        let mut vs: Vec<_> = vs.into_iter().filter_map(|v| v).collect();
-                        match vs.is_empty() {
-                            true => Ok(None),
-                            false => {
-                                let value = vs.pop().unwrap();
-                                match !vs.is_empty() && vs.iter().all(|k| k.is_string()) {
-                                    true => Ok(Some((
-                                        vs.drain(..).map(|k| k.into_string()).collect(),
-                                        value,
-                                    ))),
-                                    false => Err(ErrorKind::Custom(0)),
-                                }
-                            }
+        result:
+            map_res!(
+                separated_list!(space1, apply!(parse_value, state)),
+                |vs: Vec<Option<Value>>| {
+                    let mut vs: Vec<_> = vs.into_iter().filter_map(|v| v).collect();
+                    if !vs.is_empty() {
+                        let value = vs.pop().unwrap();
+                        if !vs.is_empty() && vs.iter().all(|k| k.is_string()) {
+                            Ok(Some((
+                                vs.drain(..).map(|k| k.into_string()).collect(),
+                                value,
+                            )))
+                        } else {
+                            Err(ErrorKind::Custom(0))
                         }
+                    } else {
+                        Ok(None)
                     }
-                ) >> multispace0 >> (result)
-        )
+                }
+            ) >> (result)
     )
 }
 
@@ -126,22 +128,16 @@ fn parse_value<'a>(
     state: &mut State,
 ) -> IResult<CompleteStr<'a>, Option<Value>> {
     println!("parse value");
-    dbg_dmp!(
+    alt!(
         input,
-        do_parse!(
-            //        input,
-            value:
-                alt!(
-                    map!(
-                        delimited!(tag!("{"), apply!(parse_dict, state), tag!("}")),
-                        Some
-                    )
-                        | map!(
-                            delimited!(tag!("["), apply!(parse_list, state), tag!("]")),
-                            |list| Some(Value::Array(list))
-                        ) | apply!(parse_expression, state)
-                ) >> space0 >> (value)
+        map!(
+            delimited!(tag!("{"), apply!(parse_dict, state), tag!("}")),
+            Some
         )
+            | map!(
+                delimited!(tag!("["), apply!(parse_list, state), tag!("]")),
+                |list| Some(Value::Array(list))
+            ) | apply!(parse_expression, state)
     )
 }
 
@@ -152,9 +148,7 @@ fn parse_expression<'a>(
     println!("parse expression");
     alt!(
         input,
-        map!(parse_quoted_string, Some)
-            | apply!(parse_bare_string, state)
-            | value!(None, many1!(alt!(multispace1 | tag!(","))))
+        map!(parse_quoted_string, Some) | apply!(parse_bare_string, state)
     )
 }
 
@@ -208,7 +202,7 @@ named!(parse_quoted_string(CompleteStr) -> Value,
                     | tag!("?") => { |_| "?" }
                 )
             ),
-            |v| Value::String(v)
+            Value::String
         ),
         tag!("\"")
     )
@@ -490,7 +484,7 @@ mod test {
         assert_eq!(from_str(a).unwrap().as_noc_string(), format!("{{{}}}", a));
 
         let a = "test {]";
-        assert_eq!(from_str(a).unwrap_err(), "Error string");
+        assert_eq!(from_str(a).unwrap_err(), "Trailing characters");
 
         let a = r#"let(template, value),
  key apply(template)"#;

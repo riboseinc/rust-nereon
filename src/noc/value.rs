@@ -165,8 +165,7 @@ impl Value {
                             k,
                             v.as_noc_string_indented(&next_indent)
                         )
-                    })
-                    .collect::<Vec<_>>();
+                    }).collect::<Vec<_>>();
                 format!("{{\n{}\n{}}}", values.join("\n"), indent)
             }
         }

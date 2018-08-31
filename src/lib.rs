@@ -119,6 +119,9 @@
 //! std::fs::remove_file("/tmp/nereon_test");
 //! ```
 
+#[macro_use]
+extern crate nom;
+
 extern crate getopts;
 extern crate regex;
 #[cfg_attr(test, macro_use)]

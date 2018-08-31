@@ -64,8 +64,7 @@ fn main() {
                     .and_then(|p| playground(p).map_err(|e| format!("{:?}", e))),
                 _ => parse().map_err(|e| format!("{:?}", e)),
             }
-        })
-        .unwrap_or_else(|e| {
+        }).unwrap_or_else(|e| {
             println!("{}", e);
             usage(&opts);
             exit(1);
@@ -91,8 +90,7 @@ fn playground(port: u32) -> io::Result<()> {
                 Ok(req) => handle_request(req)?,
                 Err(e) => return Err(Box::new(e)),
             };
-        })
-        .map_err(|e| *e.downcast::<io::Error>().unwrap())
+        }).map_err(|e| *e.downcast::<io::Error>().unwrap())
 }
 
 fn handle_request(mut req: Request) -> io::Result<()> {

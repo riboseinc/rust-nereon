@@ -21,34 +21,38 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-use super::{ErrorKind, Value};
+use super::Value;
 
-pub fn evaluate(name: &str, eval_args: &[Value], apply_args: &[Value]) -> Result<Value, ErrorKind> {
+pub fn evaluate(_name: &str, _eval_args: &[Value], _apply_args: &[Value]) -> Result<Value, String> {
+    unimplemented!()
+/*
     match name {
         "add" => add(eval_args),
         "arg" => arg(eval_args, apply_args),
         _ => Err(ErrorKind::UnknownEval(name.to_owned())),
     }
+*/
 }
 
-fn arg(eval_args: &[Value], apply_args: &[Value]) -> Result<Value, ErrorKind> {
+fn arg(_eval_args: &[Value], _apply_args: &[Value]) -> Result<Value, String> {
+    unimplemented!();
+/*
     match eval_args.len() {
         1 => Ok(&eval_args[0]),
         _ => Err(ErrorKind::BadArg("arg(int)".to_owned())),
     }.and_then(|arg| match arg.as_string() {
         Some(arg) => Ok(arg),
         None => Err(ErrorKind::BadArg(format!("arg(int): Not an int {:?}", arg))),
+    }).and_then(|num| match num.parse::<usize>() {
+        Ok(num) => Ok(num),
+        Err(e) => Err(ErrorKind::BadArg(format!("arg(int): {:?}", e))),
+    }).and_then(|num| match apply_args.get(num) {
+        Some(value) => Ok((*value).clone()),
+        None => Err(ErrorKind::BadArg(format!("arg({}): not enough args", num))),
     })
-        .and_then(|num| match num.parse::<usize>() {
-            Ok(num) => Ok(num),
-            Err(e) => Err(ErrorKind::BadArg(format!("arg(int): {:?}", e))),
-        })
-        .and_then(|num| match apply_args.get(num) {
-            Some(value) => Ok((*value).clone()),
-            None => Err(ErrorKind::BadArg(format!("arg({}): not enough args", num))),
-        })
+*/
 }
 
-fn add(_args: &[Value]) -> Result<Value, ErrorKind> {
+fn add(_args: &[Value]) -> Result<Value, String> {
     unimplemented!()
 }

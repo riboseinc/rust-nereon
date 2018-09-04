@@ -39,12 +39,8 @@ struct Template {
 }
 
 struct State {
-    templates: Vec<Template>,
+    templates: HashMap<String, Template>,
     args: Vec<Value>,
-}
-
-pub fn from_str(input: &str) -> Result<Value, String> {
-    parse(CompleteStr::from(input)).map_err(String::from)
 }
 
 pub fn from_read(input: &mut io::Read) -> Result<Value, String> {
@@ -55,29 +51,24 @@ pub fn from_read(input: &mut io::Read) -> Result<Value, String> {
         .and_then(|_| from_str(&buffer))
 }
 
-fn parse(input: CompleteStr) -> Result<Value, String> {
-    let mut state = State {
-        templates: Vec::new(),
-        args: Vec::new(),
-    };
-    do_parse!(
+pub fn from_str(input: &str) -> Result<Value, String> {
+    let (input, _) = space0(CompleteStr::from(input)).unwrap();
+    apply!(
         input,
-        space0 >>
-            dict: apply!(parse_dict, &mut state) >>
-            (dict)
-    ).map_err(|e| {
-        println!("{:?}", e);
-        format!("Parse error: {:?}", e)
-    }) // TODO
+        parse_dict,
+        &mut State {
+            templates: HashMap::new(),
+            args: Vec::new(),
+        }
+    ).map_err(|e| format!("Parse error: {:?}", e))
         .and_then(|v| match v {
             (CompleteStr(""), v) => Ok(v),
-            _ => Err("Trailing characters".to_owned()), // TODO
+            _ => Err("Trailing characters".to_owned()),
         })
 }
 
-fn parse_dict<'a>(input: CompleteStr<'a>, state: &mut State) -> IResult<CompleteStr<'a>, Value> {
+named_args!(parse_dict<'a>(state: &mut State)<CompleteStr<'a>, Value>,
     fold_many0!(
-        input,
         do_parse!(
             result: apply!(parse_keyed_value, state)
                 >> many0!(alt!(tag!(",") | multispace0))
@@ -91,45 +82,32 @@ fn parse_dict<'a>(input: CompleteStr<'a>, state: &mut State) -> IResult<Complete
             acc
         }
     )
-}
+);
 
-fn parse_keyed_value<'a>(
-    input: CompleteStr<'a>,
-    state: &mut State,
-) -> IResult<CompleteStr<'a>, Option<(Vec<String>, Value)>> {
-    println!("parse keyed");
-    do_parse!(
-        input,
-        result:
-            map_res!(
-                separated_list!(space1, apply!(parse_value, state)),
-                |vs: Vec<Option<Value>>| {
-                    let mut vs: Vec<_> = vs.into_iter().filter_map(|v| v).collect();
-                    if !vs.is_empty() {
-                        let value = vs.pop().unwrap();
-                        if !vs.is_empty() && vs.iter().all(|k| k.is_string()) {
-                            Ok(Some((
-                                vs.drain(..).map(|k| k.into_string()).collect(),
-                                value,
-                            )))
-                        } else {
-                            Err(ErrorKind::Custom(0))
-                        }
-                    } else {
-                        Ok(None)
-                    }
+named_args!(parse_keyed_value<'a>(state: &mut State)<CompleteStr<'a>, Option<(Vec<String>, Value)>>,
+    map_res!(
+        separated_list!(space1, apply!(parse_value, state)),
+        |vs: Vec<Option<Value>>| {
+            let mut vs: Vec<_> = vs.into_iter().filter_map(|v| v).collect();
+            if !vs.is_empty() {
+                let value = vs.pop().unwrap();
+                if !vs.is_empty() && vs.iter().all(|k| k.is_string()) {
+                    Ok(Some((
+                        vs.drain(..).map(|k| k.into_string()).collect(),
+                        value,
+                    )))
+                } else {
+                    Err(ErrorKind::Custom(0))
                 }
-            ) >> (result)
+            } else {
+                Ok(None)
+            }
+        }
     )
-}
+);
 
-fn parse_value<'a>(
-    input: CompleteStr<'a>,
-    state: &mut State,
-) -> IResult<CompleteStr<'a>, Option<Value>> {
-    println!("parse value");
+named_args!(parse_value<'a>(state: &mut State)<CompleteStr<'a>, Option<Value>>,
     alt!(
-        input,
         map!(
             delimited!(tag!("{"), apply!(parse_dict, state), tag!("}")),
             Some
@@ -139,47 +117,54 @@ fn parse_value<'a>(
                 |list| Some(Value::Array(list))
             ) | apply!(parse_expression, state)
     )
-}
+);
 
-fn parse_expression<'a>(
-    input: CompleteStr<'a>,
-    state: &State,
-) -> IResult<CompleteStr<'a>, Option<Value>> {
-    println!("parse expression");
+named_args!(parse_expression<'a>(state: &mut State)<CompleteStr<'a>, Option<Value>>,
     alt!(
-        input,
-        map!(parse_quoted_string, Some) | apply!(parse_bare_string, state)
+        value!(None, apply!(parse_let, state)) |
+        apply!(parse_apply, state) |
+        apply!(parse_macro, state) |
+        apply!(parse_parens, state) |
+        apply!(parse_binop, state) |
+        map!(parse_quoted_string, Some) |
+        map!(
+            take_while1_s!(|c| is_alphanumeric(c as u8) || c == '_' || c == '.'),
+            |v| Some(Value::String(v.0.to_owned()))
+        )
     )
-}
+);
 
-fn parse_bare_string<'a>(
-    input: CompleteStr<'a>,
-    _state: &State,
-) -> IResult<CompleteStr<'a>, Option<Value>> {
-    map!(
-        input,
-        take_while1_s!(|c| is_alphanumeric(c as u8) || c as u8 == b'_'),
-        |v| Some(Value::String(v.0.to_owned()))
-    )
-
-    /*
-    let mut result = String::new();
-    loop {
-        match self.peek() {
-            None => break,
-            Some(c) if c == ' ' || c == '\t' || is_sep(c) || is_close(c) => break,
-            Some(c) if c >= 'a' && c <= 'z' => result.push(c),
-            Some(c) if c >= 'A' && c <= 'Z' => result.push(c),
-            Some(c) if c >= '0' && c <= '9' => result.push(c),
-            Some(c) if c == '_' => result.push(c),
-            Some(c) if c == '(' => return self.parse_macro(&result, args),
-            Some(c) => return Err("TODO".to_owned()), // Unexpected c
+named_args!(parse_let<'a>(state: &mut State)<CompleteStr<'a>, ()>,
+    map_res!(
+        tuple!(
+            apply!(parse_value, state),
+            parse_template
+        ), |(name, template): (Option<Value>, String)| {
+            if let Some(name) = name.map(|v| v.into_string()) {
+                state.templates.insert(name, Template { row: 0, clm: 0, template });
+                Ok(())
+            } else {
+                Err(ErrorKind::Custom(1))
+            }
         }
-        self.skip();
-    }
-    Ok(Some(Value::String(result)))
-*/
-}
+    )
+);
+
+named_args!(parse_apply<'a>(state: &mut State)<CompleteStr<'a>, Option<Value>>,
+    map_res!(value!(None), |_: Option<Value>| Err(ErrorKind::Custom(2)))
+);
+
+named_args!(parse_parens<'a>(state: &mut State)<CompleteStr<'a>, Option<Value>>,
+    map_res!(value!(None), |_: Option<Value>| Err(ErrorKind::Custom(2)))
+);
+
+named_args!(parse_binop<'a>(state: &mut State)<CompleteStr<'a>, Option<Value>>,
+    map_res!(value!(None), |_: Option<Value>| Err(ErrorKind::Custom(2)))
+);
+
+named!(parse_template(CompleteStr) -> String,
+    value!(String::new())
+);
 
 named!(parse_quoted_string(CompleteStr) -> Value,
     delimited!(
@@ -206,49 +191,9 @@ named!(parse_quoted_string(CompleteStr) -> Value,
         ),
         tag!("\"")
     )
-
-    /*
-    let escapes: HashMap<char, char> = HashMap::from_iter(vec![
-        ('a', 0x07 as char),
-        ('b', 0x08 as char),
-        ('f', 0x0c as char),
-        ('n', '\n'),
-        ('r', '\r'),
-        ('t', '\t'),
-        ('v', 0x0b as char),
-        ('\\', '\\'),
-        ('\'', '\''),
-        ('\"', '\"'),
-        ('?', '?'),
-    ]);
-    let mut result = String::new();
-    loop {
-        match self.peek() {
-            None => break,
-            Some(c) if c == '\"' => break,
-            Some(c) if c == '\\' => match self.get() {
-                Some(c) if escapes.contains_key(&c) => result.push(escapes[&c]),
-                Some(c) => {
-                    result.push('\\');
-                    result.push(c);
-                }
-                None => break,
-            },
-            Some(c) => {
-                result.push(c);
-                self.skip();
-            }
-        }
-    }
-    Value::String(result)
-*/
 );
 
-fn parse_macro<'a>(
-    _input: CompleteStr,
-    _name: &'a str,
-    _state: &State,
-) -> IResult<CompleteStr<'a>, Option<Value>> {
+fn parse_macro<'a>(_input: CompleteStr, _state: &State) -> IResult<CompleteStr<'a>, Option<Value>> {
     unimplemented!()
     /*
     self.skip();
@@ -268,12 +213,8 @@ fn parse_macro<'a>(
 
 // parse all values up to but not including the next block terminator '}', ']', ')' or EOF
 // ',' and '\n' are treated as whitespace
-fn parse_list<'a>(
-    input: CompleteStr<'a>,
-    state: &mut State,
-) -> IResult<CompleteStr<'a>, Vec<Value>> {
+named_args!(parse_list<'a>(state: &mut State)<CompleteStr<'a>, Vec<Value>>,
     map!(
-        input,
         fold_many0!(
             apply!(parse_value, state),
             Vec::new(),
@@ -284,24 +225,7 @@ fn parse_list<'a>(
         ),
         |list| list.into_iter().filter_map(|v| v).collect()
     )
-
-    /*
-    self.parse_value(args).and_then(|value| {
-        self.skip_sep();
-        match value {
-            None => match self.peek() {
-                Some(c) if is_close(c) => Ok(VecDeque::new()),
-                None => Ok(VecDeque::new()),
-                _ => self.parse_list(args),
-            },
-            Some(value) => self.parse_list(args).map(|mut values| {
-                values.push_front(value);
-                values
-            }),
-        }
-    })
-*/
-}
+);
 
 fn parse_args<'a>(
     _input: CompleteStr,
@@ -324,34 +248,6 @@ fn parse_arg<'a>(_input: CompleteStr, _state: &State) -> IResult<CompleteStr<'a>
             _ => self.parse_arg(args),
         },
         _ => Ok(arg),
-    })
-*/
-}
-
-fn parse_template<'a>(
-    _input: CompleteStr,
-    _state: &State,
-) -> IResult<CompleteStr<'a>, Option<Value>> {
-    unimplemented!()
-    /*
-    self.parse_arg(args).and_then(|name| {
-        match name.filter(|name| name.is_string()) {
-            Some(name) => Ok(name.into_string()),
-            _ => Err(self.error(ErrorKind::BadKey)),
-        }.and_then(|name| {
-            self.skip_sep();
-            let row = self.row;
-            let clm = self.clm;
-            self.parse_template_string()
-                .and_then(|template| self.expect(template, Some(')')))
-                .map(|template| {
-                    self.templates
-                        .as_mut()
-                        .unwrap()
-                        .insert(name, Template { row, clm, template });
-                    None
-                })
-        })
     })
 */
 }

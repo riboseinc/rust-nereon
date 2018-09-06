@@ -1,0 +1,32 @@
+whitespace = _{ " " }
+sep = _{ "," | "\n" | "\r" }
+infix = { "+" | "-" | "*" | "/" | "%" | "\\" | "^" }
+quote = _{ "\"" }
+backslash = _{"\\" }
+oct = _{ '0'..'7' }
+hex = _{ '0'..'9' | 'a'..'f' | 'A'..'F' }
+esc = @{
+    "\\" ~ ("n" | "r" | "t" | "\\" | "\'" | "\"")
+  | "\\0" ~ oct ~ oct
+  | "\\x" ~ hex ~ hex
+  | "\\U" ~ hex{8}
+  | "\\u" ~ hex{4}
+}
+quoted_chars = @{ (!quote ~ !backslash ~ any)+ }
+quoted_string = ${ (esc | quoted_chars)* }
+bare_string = @{ ('a'..'z' | 'A'..'Z' | '0'..'9' | "." | "_")+ }
+parens = { "(" ~ expression ~ ")" }
+function = @{ bare_string ~ "(" ~ list ~ ")" }
+value = {
+    function
+  | bare_string
+  | quote ~ quoted_string ~ quote
+  | parens
+  | "{" ~ kv_list ~ "}"
+  | "[" ~ list ~ "]"
+}
+expression = { value ~ (infix ~ expression)* }
+list = !{ (expression ~ sep ~ list | sep ~ list | expression)? }
+key_value = { expression{2,} }
+kv_list = { (key_value ~ sep ~ kv_list | sep ~ kv_list | key_value)? }
+root = _{ kv_list ~ eoi }

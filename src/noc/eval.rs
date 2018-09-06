@@ -23,7 +23,7 @@
 
 use super::Value;
 
-pub fn evaluate(_name: &str, _eval_args: &[Value], _apply_args: &[Value]) -> Result<Value, String> {
+pub fn _evaluate(_name: &str, _eval_args: &[Value], _apply_args: &[Value]) -> Result<Value, String> {
     unimplemented!()
 /*
     match name {

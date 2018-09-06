@@ -21,9 +21,14 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-use nom::types::CompleteStr;
-use nom::{is_alphanumeric, multispace0, space0, space1, ErrorKind, IResult, Needed};
-use std::collections::{HashMap, VecDeque};
+#[cfg(debug_assertions)]
+const _GRAMMAR: &'static str = include_str!("../nereon.pest");
+
+use pest::iterators::{Pair, Pairs};
+use pest::prec_climber::{Assoc, Operator, PrecClimber};
+use pest::Parser;
+use std::char::from_u32;
+use std::collections::HashMap;
 use std::io;
 
 mod eval;
@@ -43,6 +48,15 @@ struct State {
     args: Vec<Value>,
 }
 
+#[derive(Parser)]
+#[grammar = "nereon.pest"]
+struct NereonParser;
+
+lazy_static! {
+    static ref CLIMBER: PrecClimber<Rule> =
+        PrecClimber::new(vec![Operator::new(Rule::infix, Assoc::Left)]);
+}
+
 pub fn from_read(input: &mut io::Read) -> Result<Value, String> {
     let mut buffer = String::new();
     input
@@ -52,301 +66,120 @@ pub fn from_read(input: &mut io::Read) -> Result<Value, String> {
 }
 
 pub fn from_str(input: &str) -> Result<Value, String> {
-    let (input, _) = space0(CompleteStr::from(input)).unwrap();
-    apply!(
-        input,
-        parse_dict,
-        &mut State {
-            templates: HashMap::new(),
-            args: Vec::new(),
-        }
-    ).map_err(|e| format!("Parse error: {:?}", e))
-        .and_then(|v| match v {
-            (CompleteStr(""), v) => Ok(v),
-            _ => Err("Trailing characters".to_owned()),
-        })
+    NereonParser::parse(Rule::root, input)
+        .map_err(|e| format!("{:?}", e))
+        .and_then(|mut pairs| mk_value(pairs.next().unwrap()))
 }
 
-named_args!(parse_dict<'a>(state: &mut State)<CompleteStr<'a>, Value>,
-    fold_many0!(
-        do_parse!(
-            result: apply!(parse_keyed_value, state)
-                >> many0!(alt!(tag!(",") | multispace0))
-                >> (result)
-        ),
-        Value::Dict(HashMap::new()),
-        |mut acc: Value, o| {
-            if let Some((keys, value)) = o {
-                acc.insert(keys, value);
+fn mk_value(pair: Pair<Rule>) -> Result<Value, String> {
+    match pair.as_rule() {
+        Rule::kv_list => mk_dict(pair.into_inner()),
+        Rule::expression => evaluate(pair.into_inner()),
+        Rule::bare_string => Ok(Value::String(pair.into_span().as_str().to_owned())),
+        Rule::quoted_string => mk_quoted(pair.into_inner()),
+        _ => unimplemented!(),
+    }
+}
+
+fn mk_dict(pairs: Pairs<Rule>) -> Result<Value, String> {
+    pairs
+        .flatten()
+        .filter(|p| p.as_rule() == Rule::key_value)
+        .map(|p| {
+//            println!("---\n{}\n---", p);
+            p
+        })
+        .try_fold(Value::Dict(HashMap::new()), |mut dict, kv| {
+            println!("----------");
+            let mut values: Vec<Pair<Rule>> = kv
+                .into_inner()
+                .filter(|p| p.as_rule() == Rule::expression)
+                .collect();
+            for p in values.clone() {
+                println!("{}", p.as_str());
+                println!("{}", p);
             }
-            acc
-        }
-    )
-);
-
-named_args!(parse_keyed_value<'a>(state: &mut State)<CompleteStr<'a>, Option<(Vec<String>, Value)>>,
-    map_res!(
-        separated_list!(space1, apply!(parse_value, state)),
-        |vs: Vec<Option<Value>>| {
-            let mut vs: Vec<_> = vs.into_iter().filter_map(|v| v).collect();
-            if !vs.is_empty() {
-                let value = vs.pop().unwrap();
-                if !vs.is_empty() && vs.iter().all(|k| k.is_string()) {
-                    Ok(Some((
-                        vs.drain(..).map(|k| k.into_string()).collect(),
-                        value,
-                    )))
-                } else {
-                    Err(ErrorKind::Custom(0))
-                }
-            } else {
-                Ok(None)
-            }
-        }
-    )
-);
-
-named_args!(parse_value<'a>(state: &mut State)<CompleteStr<'a>, Option<Value>>,
-    alt!(
-        map!(
-            delimited!(tag!("{"), apply!(parse_dict, state), tag!("}")),
-            Some
-        )
-            | map!(
-                delimited!(tag!("["), apply!(parse_list, state), tag!("]")),
-                |list| Some(Value::Array(list))
-            ) | apply!(parse_expression, state)
-    )
-);
-
-named_args!(parse_expression<'a>(state: &mut State)<CompleteStr<'a>, Option<Value>>,
-    alt!(
-        value!(None, apply!(parse_let, state)) |
-        apply!(parse_apply, state) |
-        apply!(parse_macro, state) |
-        apply!(parse_parens, state) |
-        apply!(parse_binop, state) |
-        map!(parse_quoted_string, Some) |
-        map!(
-            take_while1_s!(|c| is_alphanumeric(c as u8) || c == '_' || c == '.'),
-            |v| Some(Value::String(v.0.to_owned()))
-        )
-    )
-);
-
-named_args!(parse_let<'a>(state: &mut State)<CompleteStr<'a>, ()>,
-    map_res!(
-        tuple!(
-            apply!(parse_value, state),
-            parse_template
-        ), |(name, template): (Option<Value>, String)| {
-            if let Some(name) = name.map(|v| v.into_string()) {
-                state.templates.insert(name, Template { row: 0, clm: 0, template });
-                Ok(())
-            } else {
-                Err(ErrorKind::Custom(1))
-            }
-        }
-    )
-);
-
-named_args!(parse_apply<'a>(state: &mut State)<CompleteStr<'a>, Option<Value>>,
-    map_res!(value!(None), |_: Option<Value>| Err(ErrorKind::Custom(2)))
-);
-
-named_args!(parse_parens<'a>(state: &mut State)<CompleteStr<'a>, Option<Value>>,
-    map_res!(value!(None), |_: Option<Value>| Err(ErrorKind::Custom(2)))
-);
-
-named_args!(parse_binop<'a>(state: &mut State)<CompleteStr<'a>, Option<Value>>,
-    map_res!(value!(None), |_: Option<Value>| Err(ErrorKind::Custom(2)))
-);
-
-named!(parse_template(CompleteStr) -> String,
-    value!(String::new())
-);
-
-named!(parse_quoted_string(CompleteStr) -> Value,
-    delimited!(
-        tag!("\""),
-        map!(
-            escaped_transform!(
-                none_of!("\""),
-                '\\',
-                alt!(
-                    tag!("a") => { |_| "\x07" }
-                    | tag!("b") => { |_| "\x08" }
-                    | tag!("f") => { |_| "\x0c" }
-                    | tag!("n") => { |_| "\n" }
-                    | tag!("r") => { |_| "\r" }
-                    | tag!("t") => { |_| "\t" }
-                    | tag!("v") => { |_| "\x0b" }
-                    | tag!("\\") => { |_| "\\" }
-                    | tag!("\'") => { |_| "\'" }
-                    | tag!("\"") => { |_| "\"" }
-                    | tag!("?") => { |_| "?" }
-                )
-            ),
-            Value::String
-        ),
-        tag!("\"")
-    )
-);
-
-fn parse_macro<'a>(_input: CompleteStr, _state: &State) -> IResult<CompleteStr<'a>, Option<Value>> {
-    unimplemented!()
-    /*
-    self.skip();
-    match name {
-        "let" => self.create_template(args),
-        "apply" => self.apply_template(args),
-        _ => self
-            .parse_args(args)
-            .and_then(|mut eval_args| {
-                eval::evaluate(name, &Vec::from_iter(eval_args.drain(..))[..], args)
-                    .map_err(|e| self.error(e))
+            mk_value(values.pop().unwrap()).and_then(|value| {
+                values
+                    .into_iter()
+                    .try_fold(Vec::new(), |mut keys, e| {
+                        mk_value(e).and_then(|key| {
+                            if key.is_string() {
+                                keys.push(key.into_string());
+                                Ok(keys)
+                            } else {
+                                Err("Key is not a string".to_owned())
+                            }
+                        })
+                    })
+                    .and_then(|keys| {
+                        dict.insert(keys, value);
+                        Ok(dict)
+                    })
             })
-            .map(|v| Some(v)),
-    }
-*/
-}
-
-// parse all values up to but not including the next block terminator '}', ']', ')' or EOF
-// ',' and '\n' are treated as whitespace
-named_args!(parse_list<'a>(state: &mut State)<CompleteStr<'a>, Vec<Value>>,
-    map!(
-        fold_many0!(
-            apply!(parse_value, state),
-            Vec::new(),
-            |mut list: Vec<_>, value| {
-                list.push(value);
-                list
-            }
-        ),
-        |list| list.into_iter().filter_map(|v| v).collect()
-    )
-);
-
-fn parse_args<'a>(
-    _input: CompleteStr,
-    _state: &'a State,
-) -> IResult<CompleteStr<'a>, VecDeque<Value>> {
-    unimplemented!()
-    /*
-    self.parse_list(args)
-        .and_then(|v| self.expect(v, Some(')')))
-*/
-}
-
-fn parse_arg<'a>(_input: CompleteStr, _state: &State) -> IResult<CompleteStr<'a>, Option<Value>> {
-    unimplemented!()
-    /*
-    self.parse_value(args).and_then(|arg| match arg {
-        None => match self.skip_sep() {
-            None => Ok(None),
-            Some(c) if is_close(c) => Ok(None),
-            _ => self.parse_arg(args),
-        },
-        _ => Ok(arg),
-    })
-*/
-}
-
-fn apply_template(_input: CompleteStr, _state: &State) -> Result<Option<Value>, String> {
-    unimplemented!()
-    /*
-    let bad_name = "Template name should be a string";
-    self.parse_args(args)
-        .and_then(|mut apply_args| match apply_args.pop_front() {
-            None => Err(self.error(ErrorKind::BadArg(bad_name.to_owned()))),
-            Some(name) => match name.as_string() {
-                Some(name) => Ok(name),
-                None => Err(self.error(ErrorKind::BadArg(bad_name.to_owned()))),
-            }.and_then(|name| {
-                let templates = self.templates.take().unwrap();
-                if let Some(template) = templates.get(name).map(|v| v.clone()) {
-                    let mut parser = Parser {
-                        src: &mut template.template.chars().peekable(),
-                        row: template.row,
-                        clm: template.clm,
-                        templates: Some(templates),
-                    };
-                    let result = parser
-                        .parse_value(&Vec::from_iter(apply_args.drain(..)))
-                        .and_then(|value| match parser.skip_sep() {
-                            None => Ok(value),
-                            Some(c) => Err(parser.error(ErrorKind::Unexpected(c))),
-                        });
-                    self.templates = parser.templates.take();
-                    result
-                } else {
-                    Err(self.error(ErrorKind::MissingTemplate(name.to_owned())))
-                }
-            }),
         })
-*/
 }
 
-fn parse_template_string<'a>(_input: CompleteStr) -> IResult<CompleteStr, String> {
-    unimplemented!()
-    /*
-    // read next value and return as a string
-    let mut braces = Vec::new();
-    let mut result = String::new();
-    loop {
-        match self.peek() {
-            None => return Err(self.error(ErrorKind::EOF)),
-            Some(c) if (is_sep(c) || c == ')') && braces.is_empty() => break,
-            Some(c) if c == '{' || c == '[' || c == '(' => {
-                result.push(c);
-                braces.push(c);
-            }
-            Some(c) if c == '}' || c == ']' || c == ')' => {
-                result.push(c);
-                match braces.pop() {
-                    Some('{') if c == '}' => (),
-                    Some('[') if c == ']' => (),
-                    Some('(') if c == ')' => (),
-                    _ => return Err(self.error(ErrorKind::Unexpected(c))),
+fn evaluate(expression: Pairs<Rule>) -> Result<Value, String> {
+    CLIMBER.climb(
+        expression
+            .flatten()
+            .filter(|p| p.as_rule() == Rule::value || p.as_rule() == Rule::infix),
+        |value| mk_value(value.into_inner().next().unwrap()),
+        |_lhs, op, _rhs| match op.as_rule() {
+            _ => unimplemented!(),
+        },
+    )
+}
+
+fn mk_quoted(quoted: Pairs<Rule>) -> Result<Value, String> {
+    quoted
+        .flatten()
+        .try_fold(String::new(), |mut s, pair| {
+            match pair.as_rule() {
+                Rule::quoted_chars => s.push_str(pair.into_span().as_str()),
+                Rule::esc => {
+                    let mut esc = pair.into_span().as_str();
+                    let code = esc.get(2..).unwrap();
+                    s.push(match esc.chars().skip(1).next().unwrap() {
+                        'r' => '\r',
+                        'n' => '\n',
+                        't' => '\t',
+                        c if c == '\\' || c == '\'' || c == '\"' => c,
+                        '0' => char::from(u8::from_str_radix(code, 8).unwrap()),
+                        'x' => char::from(u8::from_str_radix(code, 16).unwrap()),
+                        'u' | 'U' => match from_u32(u32::from_str_radix(code, 16).unwrap()) {
+                            Some(c) => c,
+                            _ => return Err("Invalid unicode".to_owned()),
+                        },
+                        _ => unreachable!(),
+                    })
                 }
-            }
-            Some(c) if c == '\"' => {
-                result.push(c);
-                self.skip();
-                while let Some(c) = self.peek() {
-                    result.push(c);
-                    if c == '\"' {
-                        break;
-                    }
-                    self.skip();
-                    if c == '\\' {
-                        self.skip();
-                        if let Some(c) = self.peek() {
-                            result.push(c);
-                        }
-                    }
-                }
-            }
-            Some(c) => result.push(c),
-        }
-        self.skip();
-    }
-    Ok(result)
-*/
+                _ => (),
+            };
+            Ok(s)
+        })
+        .map(|s| Value::String(s))
 }
 
 #[cfg(test)]
 mod test {
+    use super::{from_str, mk_value, NereonParser, Parser, Rule, Value};
+    use std::collections::HashMap;
+    use std::iter::FromIterator;
 
     #[test]
-    fn test_parse() {
-        use super::{from_str, Value};
-        use std::collections::HashMap;
-        use std::iter::FromIterator;
-
+    fn test_empty() {
         assert_eq!(from_str("").unwrap(), Value::Dict(HashMap::new()));
-        assert_eq!(from_str("fail"), Err("Trailing characters".to_owned()));
+    }
 
+    #[test]
+    fn test_key_no_value() {
+        assert!(from_str("fail").is_err());
+    }
+
+    #[test]
+    fn test_key_value() {
         assert_eq!(
             from_str("key value").unwrap(),
             Value::Dict(HashMap::from_iter(vec![(
@@ -354,6 +187,24 @@ mod test {
                 Value::String("value".to_owned()),
             )]))
         );
+    }
+
+    #[test]
+    fn test_nested_dict() {
+        assert_eq!(
+            from_str("key { key value }").unwrap(),
+            Value::Dict(HashMap::from_iter(vec![(
+                "key".to_owned(),
+                Value::Dict(HashMap::from_iter(vec![(
+                    "key".to_owned(),
+                    Value::String("value".to_owned()),
+                )]))
+            )]))
+        );
+    }
+
+    #[test]
+    fn test_sep_key_value_sep() {
         assert_eq!(
             from_str(",,,,key value,,,,").unwrap(),
             Value::Dict(HashMap::from_iter(vec![(
@@ -361,14 +212,21 @@ mod test {
                 Value::String("value".to_owned()),
             )]))
         );
-        println!("--------------------------------------");
+    }
+
+    #[test]
+    fn test_duplicate_key() {
         assert_eq!(
-            from_str("key value\nkey value1").unwrap(),
+            from_str("key value,key value1").unwrap(),
             Value::Dict(HashMap::from_iter(vec![(
                 "key".to_owned(),
                 Value::String("value1".to_owned()),
             )]))
         );
+    }
+
+    #[test]
+    fn test_multi_kv() {
         assert_eq!(
             from_str("key value\nkey2 value2").unwrap(),
             Value::Dict(HashMap::from_iter(vec![
@@ -376,12 +234,46 @@ mod test {
                 ("key2".to_owned(), Value::String("value2".to_owned())),
             ]))
         );
-        let a = r#""key1" "value1""#;
-        assert_eq!(from_str(a).unwrap().as_noc_string(), format!("{{{}}}", a));
+    }
 
+    #[test]
+    fn test_quoted_kv() {
+        let a = r#""key\n1" "value\n1""#;
+        let b = "\"key\n1\" \"value\n1\"";
+        assert_eq!(from_str(a).unwrap().as_noc_string(), format!("{{{}}}", b));
+    }
+
+    #[test]
+    fn test_bad_escape() {
+        let a = r#""key\n1" "value\1""#;
+        assert!(from_str(a).is_err());
+    }
+
+    #[test]
+    fn test_unalanced() {
         let a = "test {]";
-        assert_eq!(from_str(a).unwrap_err(), "Trailing characters");
+        assert!(from_str(a).is_err());
+    }
 
+    #[test]
+    fn test_quoted() {
+        let mut ps = NereonParser::parse(Rule::value, r#""\x20\040\u0020\U00000020""#).unwrap();
+        assert_eq!(
+            mk_value(ps.next().unwrap().into_inner().next().unwrap()),
+            Ok(Value::String("    ".to_owned()))
+        );
+    }
+
+    #[test]
+    fn test_bad_unicode_parse() {
+        assert!(
+            NereonParser::parse(Rule::value, r#""\U0000020""#).is_err();
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_template_string() {
         let a = r#"let(template, value),
  key apply(template)"#;
         assert_eq!(
@@ -391,7 +283,11 @@ mod test {
                 Value::String("value".to_owned()),
             )]))
         );
+    }
 
+    #[test]
+    #[ignore]
+    fn test_template_list() {
         let a = r#"let(template, [value])
                    key apply(template)"#;
         assert_eq!(
@@ -401,7 +297,11 @@ mod test {
                 Value::Array(vec![Value::String("value".to_owned())]),
             )]))
         );
+    }
 
+    #[test]
+    #[ignore]
+    fn test_template_array_arg() {
         let a = r#"let(template, arg(0))
                    key apply(template [value])"#;
         assert_eq!(

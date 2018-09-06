@@ -120,7 +120,11 @@
 //! ```
 
 #[macro_use]
-extern crate nom;
+extern crate pest_derive;
+extern crate pest;
+
+#[macro_use]
+extern crate lazy_static;
 
 extern crate getopts;
 extern crate regex;

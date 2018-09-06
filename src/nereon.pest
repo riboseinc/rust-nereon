@@ -22,11 +22,13 @@ value = {
   | bare_string
   | quote ~ quoted_string ~ quote
   | parens
-  | "{" ~ kv_list ~ "}"
+  | "{" ~ dict ~ "}"
   | "[" ~ list ~ "]"
 }
-expression = { value ~ (infix ~ expression)* }
-list = !{ (expression ~ sep ~ list | sep ~ list | expression)? }
+expression = { value ~ (infix ~ value)* }
+exp_list = _{ (expression ~ sep ~ exp_list | sep ~ exp_list | expression)? }
 key_value = { expression{2,} }
-kv_list = { (key_value ~ sep ~ kv_list | sep ~ kv_list | key_value)? }
-root = _{ kv_list ~ eoi }
+kv_list = _{ (key_value ~ sep ~ kv_list | sep ~ kv_list | key_value)? }
+list = !{ exp_list }
+dict = !{ kv_list }
+root = _{ dict ~ eoi }

@@ -24,7 +24,7 @@
 #[cfg(debug_assertions)]
 const _GRAMMAR: &'static str = include_str!("../nereon.pest");
 
-use pest::iterators::{Pair, Pairs};
+use pest::iterators::Pair;
 use pest::prec_climber::{Assoc, Operator, PrecClimber};
 use pest::Parser;
 use std::char::from_u32;
@@ -73,34 +73,23 @@ pub fn from_str(input: &str) -> Result<Value, String> {
 
 fn mk_value(pair: Pair<Rule>) -> Result<Value, String> {
     match pair.as_rule() {
-        Rule::kv_list => mk_dict(pair.into_inner()),
-        Rule::expression => evaluate(pair.into_inner()),
+        Rule::dict => mk_dict(pair),
+        Rule::list => mk_list(pair),
+        Rule::expression => evaluate(pair),
         Rule::bare_string => Ok(Value::String(pair.into_span().as_str().to_owned())),
-        Rule::quoted_string => mk_quoted(pair.into_inner()),
+        Rule::quoted_string => mk_quoted(pair),
         _ => unimplemented!(),
     }
 }
 
-fn mk_dict(pairs: Pairs<Rule>) -> Result<Value, String> {
-    pairs
-        .flatten()
-        .filter(|p| p.as_rule() == Rule::key_value)
-        .map(|p| {
-//            println!("---\n{}\n---", p);
-            p
-        })
-        .try_fold(Value::Dict(HashMap::new()), |mut dict, kv| {
-            println!("----------");
-            let mut values: Vec<Pair<Rule>> = kv
-                .into_inner()
-                .filter(|p| p.as_rule() == Rule::expression)
-                .collect();
-            for p in values.clone() {
-                println!("{}", p.as_str());
-                println!("{}", p);
-            }
-            mk_value(values.pop().unwrap()).and_then(|value| {
-                values
+fn mk_dict(pair: Pair<Rule>) -> Result<Value, String> {
+    pair.into_inner()
+        .try_fold(Value::Dict(HashMap::new()), |mut dict, key_value| {
+            assert!(key_value.as_rule() == Rule::key_value);
+            let mut expressions: Vec<Pair<Rule>> = key_value.into_inner().collect();
+            assert!(expressions.iter().all(|e| e.as_rule() == Rule::expression));
+            mk_value(expressions.pop().unwrap()).and_then(|value| {
+                expressions
                     .into_iter()
                     .try_fold(Vec::new(), |mut keys, e| {
                         mk_value(e).and_then(|key| {
@@ -120,11 +109,21 @@ fn mk_dict(pairs: Pairs<Rule>) -> Result<Value, String> {
         })
 }
 
-fn evaluate(expression: Pairs<Rule>) -> Result<Value, String> {
+fn mk_list(pair: Pair<Rule>) -> Result<Value, String> {
+    pair.into_inner()
+        .try_fold(Vec::new(), |mut list, expression| {
+            assert!(expression.as_rule() == Rule::expression);
+            mk_value(expression).and_then(|value| {
+                list.push(value);
+                Ok(list)
+            })
+        })
+        .map(|list| Value::Array(list))
+}
+
+fn evaluate(expression: Pair<Rule>) -> Result<Value, String> {
     CLIMBER.climb(
-        expression
-            .flatten()
-            .filter(|p| p.as_rule() == Rule::value || p.as_rule() == Rule::infix),
+        expression.into_inner(),
         |value| mk_value(value.into_inner().next().unwrap()),
         |_lhs, op, _rhs| match op.as_rule() {
             _ => unimplemented!(),
@@ -132,9 +131,9 @@ fn evaluate(expression: Pairs<Rule>) -> Result<Value, String> {
     )
 }
 
-fn mk_quoted(quoted: Pairs<Rule>) -> Result<Value, String> {
+fn mk_quoted(quoted: Pair<Rule>) -> Result<Value, String> {
     quoted
-        .flatten()
+        .into_inner()
         .try_fold(String::new(), |mut s, pair| {
             match pair.as_rule() {
                 Rule::quoted_chars => s.push_str(pair.into_span().as_str()),
@@ -155,7 +154,7 @@ fn mk_quoted(quoted: Pairs<Rule>) -> Result<Value, String> {
                         _ => unreachable!(),
                     })
                 }
-                _ => (),
+                _ => unreachable!(),
             };
             Ok(s)
         })
@@ -198,7 +197,7 @@ mod test {
                 Value::Dict(HashMap::from_iter(vec![(
                     "key".to_owned(),
                     Value::String("value".to_owned()),
-                )]))
+                )])),
             )]))
         );
     }
@@ -257,7 +256,7 @@ mod test {
 
     #[test]
     fn test_quoted() {
-        let mut ps = NereonParser::parse(Rule::value, r#""\x20\040\u0020\U00000020""#).unwrap();
+        let mut ps = NereonParser::parse(Rule::value, r#""\x20\040\u0020\U00000020"()"#).unwrap();
         assert_eq!(
             mk_value(ps.next().unwrap().into_inner().next().unwrap()),
             Ok(Value::String("    ".to_owned()))

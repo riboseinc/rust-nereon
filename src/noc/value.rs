@@ -21,7 +21,7 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Value {
@@ -31,31 +31,28 @@ pub enum Value {
 }
 
 impl Value {
-    pub fn insert(&mut self, mut keys: Vec<String>, mut value: Value) {
-        let key = keys.remove(0);
+    pub fn insert(&mut self, keys: &mut VecDeque<String>, value: Value) {
+        let key = keys.pop_front().unwrap();
         let map = self.as_dict_mut().unwrap();
         let old_value = map.remove(&key).filter(|v| v.is_dict());
 
         map.insert(
             key,
-            match keys.len() {
-                0 => {
-                    // single key so insert in current node
-                    match (value.is_dict(), old_value) {
-                        (true, Some(Value::Dict(mut existing))) => {
-                            for (k, v) in value.as_dict_mut().unwrap().drain() {
-                                existing.insert(k, v);
-                            }
-                            Value::Dict(existing)
+            if keys.is_empty() {
+                // single key so insert in current node
+                match (value, old_value) {
+                    (Value::Dict(mut new), Some(Value::Dict(mut existing))) => {
+                        for (k, v) in new.drain() {
+                            existing.insert(k, v);
                         }
-                        _ => value,
+                        Value::Dict(existing)
                     }
+                    v@_ => v.0,
                 }
-                _ => {
-                    let mut node = old_value.unwrap_or_else(|| Value::Dict(HashMap::new()));
-                    node.insert(keys, value);
-                    node
-                }
+            } else {
+                let mut node = old_value.unwrap_or_else(|| Value::Dict(HashMap::new()));
+                node.insert(keys, value);
+                node
             },
         );
     }
@@ -74,10 +71,10 @@ impl Value {
         }
     }
 
-    pub fn into_string(self) -> String {
+    pub fn into_string(self) -> Option<String> {
         match self {
-            Value::String(s) => s,
-            _ => panic!(),
+            Value::String(s) => Some(s),
+            _ => None,
         }
     }
 

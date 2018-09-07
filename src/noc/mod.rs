@@ -22,13 +22,13 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #[cfg(debug_assertions)]
-const _GRAMMAR: &'static str = include_str!("../nereon.pest");
+const _GRAMMAR: &str = include_str!("../nereon.pest");
 
 use pest::iterators::Pair;
 use pest::prec_climber::{Assoc, Operator, PrecClimber};
 use pest::Parser;
 use std::char::from_u32;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io;
 
 mod functions;
@@ -76,7 +76,7 @@ pub fn from_str(input: &str) -> Result<Value, String> {
 fn mk_value<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, String> {
     match pair.as_rule() {
         Rule::dict => mk_dict(pair, state),
-        Rule::list => mk_list(pair, state).map(|list| Value::List(list)),
+        Rule::list => mk_list(pair, state).map(Value::List),
         Rule::expression => evaluate(pair, state),
         Rule::bare_string => Ok(Value::String(pair.into_span().as_str().to_owned())),
         Rule::quoted_string => mk_quoted(pair),
@@ -95,18 +95,18 @@ fn mk_dict<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, Str
                     mk_value(expressions.pop().unwrap(), state).and_then(|value| {
                         expressions
                             .into_iter()
-                            .try_fold(Vec::new(), |mut keys, e| {
+                            .try_fold(VecDeque::new(), |mut keys, e| {
                                 mk_value(e, state).and_then(|key| {
-                                    if key.is_string() {
-                                        keys.push(key.into_string());
-                                        Ok(keys)
-                                    } else {
-                                        Err("Key is not a string".to_owned())
-                                    }
+                                    key.into_string()
+                                        .ok_or_else(|| "Key is not a string".to_owned())
+                                        .map(|key| {
+                                            keys.push_back(key);
+                                            keys
+                                        })
                                 })
                             })
-                            .map(|keys| {
-                                dict.insert(keys, value);
+                            .map(|mut keys| {
+                                dict.insert(&mut keys, value);
                                 dict
                             })
                     })
@@ -148,36 +148,40 @@ fn evaluate<'a>(expression: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Val
 fn mk_quoted(quoted: Pair<Rule>) -> Result<Value, String> {
     quoted
         .into_inner()
-        .try_fold(String::new(), |mut s, pair| {
-            match pair.as_rule() {
-                Rule::quoted_chars => s.push_str(pair.into_span().as_str()),
-                Rule::esc => {
-                    let mut esc = pair.into_span().as_str();
-                    let code = esc.get(2..).unwrap();
-                    s.push(match esc.chars().skip(1).next().unwrap() {
-                        'r' => '\r',
-                        'n' => '\n',
-                        't' => '\t',
-                        c if c == '\\' || c == '\'' || c == '\"' => c,
-                        '0' => char::from(u8::from_str_radix(code, 8).unwrap()),
-                        'x' => char::from(u8::from_str_radix(code, 16).unwrap()),
-                        'u' | 'U' => match from_u32(u32::from_str_radix(code, 16).unwrap()) {
-                            Some(c) => c,
-                            _ => return Err("Invalid unicode".to_owned()),
-                        },
-                        _ => unreachable!(),
-                    })
-                }
-                _ => unreachable!(),
-            };
-            Ok(s)
+        .try_fold(String::new(), |mut s, pair| match pair.as_rule() {
+            Rule::quoted_chars => {
+                s.push_str(pair.into_span().as_str());
+                Ok(s)
+            }
+            Rule::esc => {
+                let mut esc = pair.into_span().as_str();
+                let code = esc.get(2..).unwrap();
+                match esc.chars().nth(1).unwrap() {
+                    'r' => Ok('\r'),
+                    'n' => Ok('\n'),
+                    't' => Ok('\t'),
+                    c if c == '\\' || c == '\'' || c == '\"' => Ok(c),
+                    '0' => Ok(char::from(u8::from_str_radix(code, 8).unwrap())),
+                    'x' => Ok(char::from(u8::from_str_radix(code, 16).unwrap())),
+                    'u' | 'U' => from_u32(u32::from_str_radix(code, 16).unwrap())
+                        .ok_or_else(|| "Invalid unicode".to_owned()),
+                    _ => unreachable!(),
+                }.map(|c| {
+                    s.push(c);
+                    s
+                })
+            }
+            _ => unreachable!(),
         })
-        .map(|s| Value::String(s))
+        .map(Value::String)
 }
 
 fn mk_template<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) {
     let mut iter = pair.into_inner();
-    let name = mk_value(iter.next().unwrap(), state).unwrap().into_string();
+    let name = mk_value(iter.next().unwrap(), state)
+        .unwrap()
+        .into_string()
+        .unwrap();
     state.templates.insert(name, iter.next().unwrap());
 }
 
@@ -187,7 +191,7 @@ fn apply_function<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Val
     mk_list(iter.next().unwrap(), state).and_then(|args| match name {
         "apply" => args[0]
             .as_string()
-            .ok_or("Template name isn't a string".to_owned())
+            .ok_or_else(|| "Template name isn't a string".to_owned())
             .and_then(|name| apply_template(name, &args[1..], state)),
         "arg" => match args.len() {
             1 => args[0]
@@ -198,16 +202,15 @@ fn apply_function<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Val
                 .map(|v| v.clone()),
             _ => Err(()),
         }.map_err(|_| "arg(n): bad argument n".to_owned()),
-        _ => functions::apply(name, &args[1..]),
+        _ => functions::apply(name, &args[0..]),
     })
 }
 
 fn apply_template(name: &str, args: &[Value], state: &mut State) -> Result<Value, String> {
-    println!("apply_ftemplate: ({}) {:?}", name, state.templates.keys());
     state
         .templates
         .get(name)
-        .ok_or("No such template".to_owned())
+        .ok_or_else(|| "No such template".to_owned())
         .and_then(|pair| {
             let mut new_state = state.clone();
             new_state.args = args.to_vec();

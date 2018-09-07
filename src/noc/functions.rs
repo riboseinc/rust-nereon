@@ -23,34 +23,11 @@
 
 use super::Value;
 
-pub fn _evaluate(_name: &str, _eval_args: &[Value], _apply_args: &[Value]) -> Result<Value, String> {
-    unimplemented!()
-/*
+pub fn apply(name: &str, args: &[Value]) -> Result<Value, String> {
     match name {
-        "add" => add(eval_args),
-        "arg" => arg(eval_args, apply_args),
-        _ => Err(ErrorKind::UnknownEval(name.to_owned())),
+        "add" => add(args),
+        _ => Err("No such function".to_owned()),
     }
-*/
-}
-
-fn arg(_eval_args: &[Value], _apply_args: &[Value]) -> Result<Value, String> {
-    unimplemented!();
-/*
-    match eval_args.len() {
-        1 => Ok(&eval_args[0]),
-        _ => Err(ErrorKind::BadArg("arg(int)".to_owned())),
-    }.and_then(|arg| match arg.as_string() {
-        Some(arg) => Ok(arg),
-        None => Err(ErrorKind::BadArg(format!("arg(int): Not an int {:?}", arg))),
-    }).and_then(|num| match num.parse::<usize>() {
-        Ok(num) => Ok(num),
-        Err(e) => Err(ErrorKind::BadArg(format!("arg(int): {:?}", e))),
-    }).and_then(|num| match apply_args.get(num) {
-        Some(value) => Ok((*value).clone()),
-        None => Err(ErrorKind::BadArg(format!("arg({}): not enough args", num))),
-    })
-*/
 }
 
 fn add(_args: &[Value]) -> Result<Value, String> {

@@ -15,20 +15,20 @@ esc = @{
 quoted_chars = @{ (!quote ~ !backslash ~ any)+ }
 quoted_string = ${ (esc | quoted_chars)* }
 bare_string = @{ ('a'..'z' | 'A'..'Z' | '0'..'9' | "." | "_")+ }
-parens = { "(" ~ expression ~ ")" }
-function = @{ bare_string ~ "(" ~ list ~ ")" }
+function = ${ bare_string ~ "(" ~ list ~ ")" }
 value = {
     function
   | bare_string
   | quote ~ quoted_string ~ quote
-  | parens
+  | "(" ~ expression ~ ")"
   | "{" ~ dict ~ "}"
   | "[" ~ list ~ "]"
 }
+template = { "let(" ~ sep* ~ (bare_string | quoted_string) ~ sep* ~ expression ~ sep* ~ ")" }
 expression = { value ~ (infix ~ value)* }
-exp_list = _{ (expression ~ sep ~ exp_list | sep ~ exp_list | expression)? }
+exp_list = _{ ((template | expression) ~ sep ~ exp_list | sep ~ exp_list | (template | expression))? }
 key_value = { expression{2,} }
-kv_list = _{ (key_value ~ sep ~ kv_list | sep ~ kv_list | key_value)? }
+kv_list = _{((template | key_value) ~ sep ~ kv_list | sep ~ kv_list | (template | key_value))? }
 list = !{ exp_list }
 dict = !{ kv_list }
 root = _{ dict ~ eoi }

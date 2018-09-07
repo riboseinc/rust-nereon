@@ -31,20 +31,14 @@ use std::char::from_u32;
 use std::collections::HashMap;
 use std::io;
 
-mod eval;
+mod functions;
 mod value;
 
 use self::value::Value;
 
-#[derive(Debug, Clone)]
-struct Template {
-    row: u32,
-    clm: u32,
-    template: String,
-}
-
-struct State {
-    templates: HashMap<String, Template>,
+#[derive(Clone, Debug)]
+struct State<'a> {
+    templates: HashMap<String, Pair<'a, Rule>>,
     args: Vec<Value>,
 }
 
@@ -68,63 +62,83 @@ pub fn from_read(input: &mut io::Read) -> Result<Value, String> {
 pub fn from_str(input: &str) -> Result<Value, String> {
     NereonParser::parse(Rule::root, input)
         .map_err(|e| format!("{:?}", e))
-        .and_then(|mut pairs| mk_value(pairs.next().unwrap()))
+        .and_then(|mut pairs| {
+            mk_value(
+                pairs.next().unwrap(),
+                &mut State {
+                    templates: HashMap::new(),
+                    args: Vec::new(),
+                },
+            )
+        })
 }
 
-fn mk_value(pair: Pair<Rule>) -> Result<Value, String> {
+fn mk_value<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, String> {
     match pair.as_rule() {
-        Rule::dict => mk_dict(pair),
-        Rule::list => mk_list(pair),
-        Rule::expression => evaluate(pair),
+        Rule::dict => mk_dict(pair, state),
+        Rule::list => mk_list(pair, state).map(|list| Value::List(list)),
+        Rule::expression => evaluate(pair, state),
         Rule::bare_string => Ok(Value::String(pair.into_span().as_str().to_owned())),
         Rule::quoted_string => mk_quoted(pair),
-        _ => unimplemented!(),
+        Rule::function => apply_function(pair, state),
+        _ => unreachable!(),
     }
 }
 
-fn mk_dict(pair: Pair<Rule>) -> Result<Value, String> {
+fn mk_dict<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, String> {
     pair.into_inner()
-        .try_fold(Value::Dict(HashMap::new()), |mut dict, key_value| {
-            assert!(key_value.as_rule() == Rule::key_value);
-            let mut expressions: Vec<Pair<Rule>> = key_value.into_inner().collect();
-            assert!(expressions.iter().all(|e| e.as_rule() == Rule::expression));
-            mk_value(expressions.pop().unwrap()).and_then(|value| {
-                expressions
-                    .into_iter()
-                    .try_fold(Vec::new(), |mut keys, e| {
-                        mk_value(e).and_then(|key| {
-                            if key.is_string() {
-                                keys.push(key.into_string());
-                                Ok(keys)
-                            } else {
-                                Err("Key is not a string".to_owned())
-                            }
-                        })
+        .try_fold(Value::Dict(HashMap::new()), |mut dict, pair| {
+            match pair.as_rule() {
+                Rule::key_value => {
+                    let mut expressions: Vec<Pair<Rule>> = pair.into_inner().collect();
+                    assert!(expressions.iter().all(|e| e.as_rule() == Rule::expression));
+                    mk_value(expressions.pop().unwrap(), state).and_then(|value| {
+                        expressions
+                            .into_iter()
+                            .try_fold(Vec::new(), |mut keys, e| {
+                                mk_value(e, state).and_then(|key| {
+                                    if key.is_string() {
+                                        keys.push(key.into_string());
+                                        Ok(keys)
+                                    } else {
+                                        Err("Key is not a string".to_owned())
+                                    }
+                                })
+                            })
+                            .map(|keys| {
+                                dict.insert(keys, value);
+                                dict
+                            })
                     })
-                    .and_then(|keys| {
-                        dict.insert(keys, value);
-                        Ok(dict)
-                    })
-            })
+                }
+                Rule::template => {
+                    mk_template(pair, state);
+                    Ok(dict)
+                }
+                _ => unreachable!(),
+            }
         })
 }
 
-fn mk_list(pair: Pair<Rule>) -> Result<Value, String> {
+fn mk_list<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Vec<Value>, String> {
     pair.into_inner()
-        .try_fold(Vec::new(), |mut list, expression| {
-            assert!(expression.as_rule() == Rule::expression);
-            mk_value(expression).and_then(|value| {
+        .try_fold(Vec::new(), |mut list, pair| match pair.as_rule() {
+            Rule::expression => mk_value(pair, state).map(|value| {
                 list.push(value);
+                list
+            }),
+            Rule::template => {
+                mk_template(pair, state);
                 Ok(list)
-            })
+            }
+            _ => unreachable!(),
         })
-        .map(|list| Value::Array(list))
 }
 
-fn evaluate(expression: Pair<Rule>) -> Result<Value, String> {
+fn evaluate<'a>(expression: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, String> {
     CLIMBER.climb(
         expression.into_inner(),
-        |value| mk_value(value.into_inner().next().unwrap()),
+        |value| mk_value(value.into_inner().next().unwrap(), state),
         |_lhs, op, _rhs| match op.as_rule() {
             _ => unimplemented!(),
         },
@@ -161,9 +175,49 @@ fn mk_quoted(quoted: Pair<Rule>) -> Result<Value, String> {
         .map(|s| Value::String(s))
 }
 
+fn mk_template<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) {
+    let mut iter = pair.into_inner();
+    let name = mk_value(iter.next().unwrap(), state).unwrap().into_string();
+    state.templates.insert(name, iter.next().unwrap());
+}
+
+fn apply_function<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, String> {
+    let mut iter = pair.into_inner();
+    let name = iter.next().unwrap().as_str();
+    mk_list(iter.next().unwrap(), state).and_then(|args| match name {
+        "apply" => args[0]
+            .as_string()
+            .ok_or("Template name isn't a string".to_owned())
+            .and_then(|name| apply_template(name, &args[1..], state)),
+        "arg" => match args.len() {
+            1 => args[0]
+                .as_string()
+                .ok_or(())
+                .and_then(|arg| arg.parse::<usize>().map_err(|_| ()))
+                .and_then(|n| state.args.get(n).ok_or(()))
+                .map(|v| v.clone()),
+            _ => Err(()),
+        }.map_err(|_| "arg(n): bad argument n".to_owned()),
+        _ => functions::apply(name, &args[1..]),
+    })
+}
+
+fn apply_template(name: &str, args: &[Value], state: &mut State) -> Result<Value, String> {
+    println!("apply_ftemplate: ({}) {:?}", name, state.templates.keys());
+    state
+        .templates
+        .get(name)
+        .ok_or("No such template".to_owned())
+        .and_then(|pair| {
+            let mut new_state = state.clone();
+            new_state.args = args.to_vec();
+            mk_value(pair.clone(), &mut new_state)
+        })
+}
+
 #[cfg(test)]
 mod test {
-    use super::{from_str, mk_value, NereonParser, Parser, Rule, Value};
+    use super::{from_str, Value};
     use std::collections::HashMap;
     use std::iter::FromIterator;
 
@@ -256,22 +310,46 @@ mod test {
 
     #[test]
     fn test_quoted() {
-        let mut ps = NereonParser::parse(Rule::value, r#""\x20\040\u0020\U00000020"()"#).unwrap();
-        assert_eq!(
-            mk_value(ps.next().unwrap().into_inner().next().unwrap()),
-            Ok(Value::String("    ".to_owned()))
-        );
+        vec![
+            (r#"a "\x20""#, r#"{"a" " "}"#),
+            (r#"a "\040""#, r#"{"a" " "}"#),
+            (r#"a "\u0020""#, r#"{"a" " "}"#),
+            (r#"a "\U00000020""#, r#"{"a" " "}"#),
+        ].iter()
+            .for_each(|(a, b)| {
+                assert_eq!(&from_str(a).unwrap().as_noc_string(), b);
+            });
     }
 
     #[test]
     fn test_bad_unicode_parse() {
-        assert!(
-            NereonParser::parse(Rule::value, r#""\U0000020""#).is_err();
-        );
+        vec![
+            r#"a "\x20"#,
+            r#"a "\04""#,
+            r#"a "\u020""#,
+            r#"a "\U00000g0""#,
+        ].iter()
+            .for_each(|a| assert!(&from_str(a).is_err()));
     }
 
     #[test]
-    #[ignore]
+    fn test_list() {
+        vec![
+            ("a []", r#"{"a" []}"#),
+            ("a [1,2]", r#"{"a" ["1","2"]}"#),
+            ("a [{}]", r#"{"a" [{}]}"#),
+            ("a [\n\n]", r#"{"a" []}"#),
+            ("a [\n1\n,2\n]", r#"{"a" ["1","2"]}"#),
+            ("a [,,1,,2]", r#"{"a" ["1","2"]}"#),
+            ("a [1,,2,,]", r#"{"a" ["1","2"]}"#),
+            ("a [{b [1,2]}]", r#"{"a" [{"b" ["1","2"]}]}"#),
+        ].iter()
+            .for_each(|(a, b)| {
+                assert_eq!(&from_str(a).unwrap().as_noc_string(), b);
+            });
+    }
+
+    #[test]
     fn test_template_string() {
         let a = r#"let(template, value),
  key apply(template)"#;
@@ -285,7 +363,6 @@ mod test {
     }
 
     #[test]
-    #[ignore]
     fn test_template_list() {
         let a = r#"let(template, [value])
                    key apply(template)"#;
@@ -293,21 +370,20 @@ mod test {
             from_str(a).unwrap(),
             Value::Dict(HashMap::from_iter(vec![(
                 "key".to_owned(),
-                Value::Array(vec![Value::String("value".to_owned())]),
+                Value::List(vec![Value::String("value".to_owned())]),
             )]))
         );
     }
 
     #[test]
-    #[ignore]
     fn test_template_array_arg() {
         let a = r#"let(template, arg(0))
-                   key apply(template [value])"#;
+                   key apply(template, [value])"#;
         assert_eq!(
             from_str(a).unwrap(),
             Value::Dict(HashMap::from_iter(vec![(
                 "key".to_owned(),
-                Value::Array(vec![Value::String("value".to_owned())]),
+                Value::List(vec![Value::String("value".to_owned())]),
             )]))
         );
     }

@@ -27,7 +27,7 @@ use std::collections::HashMap;
 pub enum Value {
     String(String),
     Dict(HashMap<String, Value>),
-    Array(Vec<Value>),
+    List(Vec<Value>),
 }
 
 impl Value {
@@ -102,23 +102,23 @@ impl Value {
         }
     }
 
-    pub fn as_array<'a>(&'a self) -> Option<&'a Vec<Value>> {
+    pub fn as_list<'a>(&'a self) -> Option<&'a Vec<Value>> {
         match self {
-            Value::Array(ref vec) => Some(vec),
+            Value::List(ref vec) => Some(vec),
             _ => None,
         }
     }
 
-    pub fn as_array_mut<'a>(&'a mut self) -> Option<&'a mut Vec<Value>> {
+    pub fn as_list_mut<'a>(&'a mut self) -> Option<&'a mut Vec<Value>> {
         match self {
-            Value::Array(ref mut vec) => Some(vec),
+            Value::List(ref mut vec) => Some(vec),
             _ => None,
         }
     }
 
-    pub fn is_array(&self) -> bool {
+    pub fn is_list(&self) -> bool {
         match self {
-            Value::Array(_) => true,
+            Value::List(_) => true,
             _ => false,
         }
     }
@@ -126,9 +126,9 @@ impl Value {
     pub fn as_noc_string(&self) -> String {
         match self {
             Value::String(s) => format!("\"{}\"", s),
-            Value::Array(v) => {
+            Value::List(v) => {
                 let values = v.iter().map(|v| v.as_noc_string()).collect::<Vec<_>>();
-                format!("[{}]", values.join(" "))
+                format!("[{}]", values.join(","))
             }
             Value::Dict(m) => {
                 let values = m
@@ -147,12 +147,12 @@ impl Value {
     fn as_noc_string_indented(&self, indent: &str) -> String {
         match self {
             Value::String(s) => format!("\"{}\"", s),
-            Value::Array(v) => {
+            Value::List(v) => {
                 let values = v
                     .iter()
                     .map(|v| v.as_noc_string_indented(&(indent.to_owned() + "\t")))
                     .collect::<Vec<_>>();
-                format!("[{}]", values.join(" "))
+                format!("[{}]", values.join(","))
             }
             Value::Dict(m) => {
                 let next_indent = indent.to_owned() + "\t";

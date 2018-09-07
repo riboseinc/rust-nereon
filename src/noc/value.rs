@@ -47,7 +47,7 @@ impl Value {
                         }
                         Value::Dict(existing)
                     }
-                    v@_ => v.0,
+                    (v, _) => v,
                 }
             } else {
                 let mut node = old_value.unwrap_or_else(|| Value::Dict(HashMap::new()));

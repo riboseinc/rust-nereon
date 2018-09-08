@@ -22,6 +22,8 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 use super::Value;
+use std::str::FromStr;
+use std::u32;
 
 pub fn apply(name: &str, args: &[Value]) -> Result<Value, String> {
     match name {
@@ -30,6 +32,81 @@ pub fn apply(name: &str, args: &[Value]) -> Result<Value, String> {
     }
 }
 
-fn add(_args: &[Value]) -> Result<Value, String> {
-    unimplemented!()
+pub fn add(args: &[Value]) -> Result<Value, String> {
+    convert::<i64>(args)
+        .map(|(lhs, rhs)| (lhs + rhs).to_string())
+        .or_else(|_| convert::<f64>(args).map(|(lhs, rhs)| (lhs + rhs).to_string()))
+        .map_err(|_| "Addition requires two numeric arguments".to_owned())
+        .map(Value::String)
+}
+
+pub fn subtract(args: &[Value]) -> Result<Value, String> {
+    convert::<i64>(args)
+        .map(|(lhs, rhs)| (lhs - rhs).to_string())
+        .or_else(|_| convert::<f64>(args).map(|(lhs, rhs)| (lhs - rhs).to_string()))
+        .map_err(|_| "Addition requires two numeric arguments".to_owned())
+        .map(Value::String)
+}
+
+pub fn multiply(args: &[Value]) -> Result<Value, String> {
+    convert::<i64>(args)
+        .map(|(lhs, rhs)| (lhs * rhs).to_string())
+        .or_else(|_| convert::<f64>(args).map(|(lhs, rhs)| (lhs * rhs).to_string()))
+        .map_err(|_| "Addition requires two numeric arguments".to_owned())
+        .map(Value::String)
+}
+
+pub fn divide(args: &[Value]) -> Result<Value, String> {
+    convert::<f64>(args)
+        .map(|(lhs, rhs)| (lhs / rhs).to_string())
+        .map_err(|_| "Addition requires two numeric arguments".to_owned())
+        .map(Value::String)
+}
+
+pub fn power(args: &[Value]) -> Result<Value, String> {
+    convert::<i64>(args)
+        .and_then(|(lhs, rhs)| {
+            if rhs > 0 && rhs <= u32::MAX as i64 {
+                Ok(lhs.pow(rhs as u32).to_string())
+            } else {
+                Err(())
+            }
+        })
+        .or_else(|_| convert::<f64>(args).map(|(lhs, rhs)| lhs.powf(rhs).to_string()))
+        .map_err(|_| "Addition requires two numeric arguments".to_owned())
+        .map(Value::String)
+}
+
+pub fn intdiv(args: &[Value]) -> Result<Value, String> {
+    convert::<i64>(args)
+        .map(|(lhs, rhs)| (lhs / rhs).to_string())
+        .map_err(|_| "Addition requires two numeric arguments".to_owned())
+        .map(Value::String)
+}
+
+pub fn modulus(args: &[Value]) -> Result<Value, String> {
+    convert::<i64>(args)
+        .map(|(lhs, rhs)| (lhs % rhs).to_string())
+        .map_err(|_| "Addition requires two numeric arguments".to_owned())
+        .map(Value::String)
+}
+
+fn convert<T: FromStr>(args: &[Value]) -> Result<(T, T), ()> {
+    args.get(2)
+        .map_or_else(|| Ok(()), |_| Err(()))
+        .and_then(|_| {
+            args.get(0)
+                .and_then(|lhs| args.get(1).map(|rhs| (lhs, rhs)))
+                .ok_or(())
+        })
+        .and_then(|(lhs, rhs)| {
+            lhs.as_string()
+                .and_then(|lhs| rhs.as_string().map(|rhs| (lhs, rhs)))
+                .ok_or(())
+        })
+        .and_then(|(lhs, rhs)| {
+            lhs.parse::<T>()
+                .and_then(|lhs| rhs.parse::<T>().map(|rhs| (lhs, rhs)))
+                .map_err(|_| ())
+        })
 }

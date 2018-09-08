@@ -1,7 +1,14 @@
-whitespace = _{ " " }
+whitespace = _{ " " | "\t" }
 sep = _{ "," | "\n" | "\r" }
-infix = { "+" | "-" | "*" | "/" | "%" | "\\" | "^" }
+plus = { "+" }
+minus = { "-" }
+times = { "*" }
+divide = { "/" }
+intdiv = { "\\" }
+modulus = { "%" }
+power = { "^" }
 quote = _{ "\"" }
+infix = _{ plus | minus | times | divide | intdiv | modulus | power }
 backslash = _{"\\" }
 oct = _{ '0'..'7' }
 hex = _{ '0'..'9' | 'a'..'f' | 'A'..'F' }
@@ -14,7 +21,7 @@ esc = @{
 }
 quoted_chars = @{ (!quote ~ !backslash ~ any)+ }
 quoted_string = ${ (esc | quoted_chars)* }
-bare_string = @{ ('a'..'z' | 'A'..'Z' | '0'..'9' | "." | "_")+ }
+bare_string = @{ minus? ~ ('a'..'z' | 'A'..'Z' | '0'..'9' | "." | "_" )+ }
 function = ${ bare_string ~ "(" ~ list ~ ")" }
 value = {
     function

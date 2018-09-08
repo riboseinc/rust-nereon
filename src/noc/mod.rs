@@ -47,8 +47,14 @@ struct State<'a> {
 struct NereonParser;
 
 lazy_static! {
-    static ref CLIMBER: PrecClimber<Rule> =
-        PrecClimber::new(vec![Operator::new(Rule::infix, Assoc::Left)]);
+    static ref CLIMBER: PrecClimber<Rule> = PrecClimber::new(vec![
+        Operator::new(Rule::plus, Assoc::Left) | Operator::new(Rule::minus, Assoc::Left),
+        Operator::new(Rule::times, Assoc::Left)
+            | Operator::new(Rule::divide, Assoc::Left)
+            | Operator::new(Rule::modulus, Assoc::Left)
+            | Operator::new(Rule::intdiv, Assoc::Left),
+        Operator::new(Rule::power, Assoc::Left),
+    ]);
 }
 
 pub fn from_read(input: &mut io::Read) -> Result<Value, String> {
@@ -139,8 +145,18 @@ fn evaluate<'a>(expression: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Val
     CLIMBER.climb(
         expression.into_inner(),
         |value| mk_value(value.into_inner().next().unwrap(), state),
-        |_lhs, op, _rhs| match op.as_rule() {
-            _ => unimplemented!(),
+        |lhs, op, rhs| {
+            lhs.and_then(|lhs| rhs.map(|rhs| [lhs, rhs]))
+                .and_then(|args| match op.as_rule() {
+                    Rule::plus => functions::add(&args),
+                    Rule::minus => functions::subtract(&args),
+                    Rule::times => functions::multiply(&args),
+                    Rule::divide => functions::divide(&args),
+                    Rule::intdiv => functions::intdiv(&args),
+                    Rule::modulus => functions::modulus(&args),
+                    Rule::power => functions::power(&args),
+                    _ => unimplemented!(),
+                })
         },
     )
 }
@@ -389,5 +405,26 @@ mod test {
                 Value::List(vec![Value::String("value".to_owned())]),
             )]))
         );
+    }
+
+    #[test]
+    fn calculate() {
+        vec![
+            ("a 1 + 1", r#"{"a" "2"}"#),
+            ("a 1 - -1", r#"{"a" "2"}"#),
+            ("a 1 * -10", r#"{"a" "-10"}"#),
+            ("a \"-1\" * 10", r#"{"a" "-10"}"#),
+            ("a (2 + 3)*4", r#"{"a" "20"}"#),
+            ("a 2+3*4", r#"{"a" "14"}"#),
+            ("a 180 / 3.14", r#"{"a" "57.324840764331206"}"#),
+            ("a 1 / 2", r#"{"a" "0.5"}"#),
+            ("a 1 \\ 2", r#"{"a" "0"}"#),
+            ("a 5 % 2", r#"{"a" "1"}"#),
+            ("a 10 ^ 2", r#"{"a" "100"}"#),
+            ("a 10 ^ (2+1)", r#"{"a" "1000"}"#),
+            ("a 10 ^ -1", r#"{"a" "0.1"}"#),
+        ].iter().for_each(|(a, b)| {
+            assert_eq!(&from_str(a).unwrap().as_noc_string(), b);
+        });
     }
 }

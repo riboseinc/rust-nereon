@@ -44,7 +44,7 @@ pub fn subtract(args: &[Value]) -> Result<Value, String> {
     convert::<i64>(args)
         .map(|(lhs, rhs)| (lhs - rhs).to_string())
         .or_else(|_| convert::<f64>(args).map(|(lhs, rhs)| (lhs - rhs).to_string()))
-        .map_err(|_| "Addition requires two numeric arguments".to_owned())
+        .map_err(|_| "Subtraction requires two numeric arguments".to_owned())
         .map(Value::String)
 }
 
@@ -52,14 +52,14 @@ pub fn multiply(args: &[Value]) -> Result<Value, String> {
     convert::<i64>(args)
         .map(|(lhs, rhs)| (lhs * rhs).to_string())
         .or_else(|_| convert::<f64>(args).map(|(lhs, rhs)| (lhs * rhs).to_string()))
-        .map_err(|_| "Addition requires two numeric arguments".to_owned())
+        .map_err(|_| "Multiplication requires two numeric arguments".to_owned())
         .map(Value::String)
 }
 
 pub fn divide(args: &[Value]) -> Result<Value, String> {
     convert::<f64>(args)
         .map(|(lhs, rhs)| (lhs / rhs).to_string())
-        .map_err(|_| "Addition requires two numeric arguments".to_owned())
+        .map_err(|_| "Division requires two numeric arguments".to_owned())
         .map(Value::String)
 }
 
@@ -73,21 +73,21 @@ pub fn power(args: &[Value]) -> Result<Value, String> {
             }
         })
         .or_else(|_| convert::<f64>(args).map(|(lhs, rhs)| lhs.powf(rhs).to_string()))
-        .map_err(|_| "Addition requires two numeric arguments".to_owned())
+        .map_err(|_| "Power requires two numeric arguments".to_owned())
         .map(Value::String)
 }
 
 pub fn intdiv(args: &[Value]) -> Result<Value, String> {
     convert::<i64>(args)
         .map(|(lhs, rhs)| (lhs / rhs).to_string())
-        .map_err(|_| "Addition requires two numeric arguments".to_owned())
+        .map_err(|_| "Integer division requires two integer arguments".to_owned())
         .map(Value::String)
 }
 
 pub fn modulus(args: &[Value]) -> Result<Value, String> {
     convert::<i64>(args)
         .map(|(lhs, rhs)| (lhs % rhs).to_string())
-        .map_err(|_| "Addition requires two numeric arguments".to_owned())
+        .map_err(|_| "Modulus requires two integer arguments".to_owned())
         .map(Value::String)
 }
 

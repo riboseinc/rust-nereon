@@ -22,19 +22,28 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #[cfg(debug_assertions)]
-const _GRAMMAR: &str = include_str!("../nereon.pest");
+const _GRAMMAR: &str = include_str!("pest");
 
 use pest::iterators::Pair;
 use pest::prec_climber::{Assoc, Operator, PrecClimber};
 use pest::Parser;
 use std::char::from_u32;
 use std::collections::{HashMap, VecDeque};
-use std::io;
 
 mod functions;
 mod value;
 
 use self::value::Value;
+
+pub trait Noc<OK=Self> {
+    fn parse(input: &str) -> Result<OK, String>;
+}
+
+impl Noc for Value {
+    fn parse(input: &str) -> Result<Value, String> {
+        from_str(input)
+    }
+}
 
 #[derive(Clone, Debug)]
 struct State<'a> {
@@ -43,8 +52,8 @@ struct State<'a> {
 }
 
 #[derive(Parser)]
-#[grammar = "nereon.pest"]
-struct NereonParser;
+#[grammar = "noc/pest"]
+struct NocParser;
 
 lazy_static! {
     static ref CLIMBER: PrecClimber<Rule> = PrecClimber::new(vec![
@@ -57,16 +66,8 @@ lazy_static! {
     ]);
 }
 
-pub fn from_read(input: &mut io::Read) -> Result<Value, String> {
-    let mut buffer = String::new();
-    input
-        .read_to_string(&mut buffer)
-        .map_err(|e| format!("{:?}", e))
-        .and_then(|_| from_str(&buffer))
-}
-
 pub fn from_str(input: &str) -> Result<Value, String> {
-    NereonParser::parse(Rule::root, input)
+    NocParser::parse(Rule::root, input)
         .map_err(|e| format!("{:?}", e))
         .and_then(|mut pairs| {
             mk_value(

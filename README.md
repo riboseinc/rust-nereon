@@ -22,4 +22,3 @@ and point your browser at `http://localhost:8042`
 [Documentation](https://docs.rs/nereon)
 
 [Website](https://github.com/riboseinc/nereon)
->>>>>>> Readme

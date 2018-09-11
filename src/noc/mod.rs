@@ -47,7 +47,7 @@ impl Noc for Value {
 
 #[derive(Clone, Debug)]
 struct State<'a> {
-    templates: HashMap<String, Pair<'a, Rule>>,
+    templates: Vec<(String, Pair<'a, Rule>)>,
     args: Vec<Value>,
 }
 
@@ -73,7 +73,7 @@ pub fn from_str(input: &str) -> Result<Value, String> {
             mk_value(
                 pairs.next().unwrap(),
                 &mut State {
-                    templates: HashMap::new(),
+                    templates: Vec::new(),
                     args: Vec::new(),
                 },
             )
@@ -199,7 +199,7 @@ fn mk_template<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) {
         .unwrap()
         .into_string()
         .unwrap();
-    state.templates.insert(name, iter.next().unwrap());
+    state.templates.push((name, iter.next().unwrap()));
 }
 
 fn apply_function<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, String> {
@@ -226,12 +226,15 @@ fn apply_function<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Val
 fn apply_template(name: &str, args: &[Value], state: &mut State) -> Result<Value, String> {
     state
         .templates
-        .get(name)
+        .iter()
+        .rposition(|(template_name, _)| template_name == name)
         .ok_or_else(|| "No such template".to_owned())
-        .and_then(|pair| {
-            let mut new_state = state.clone();
-            new_state.args = args.to_vec();
-            mk_value(pair.clone(), &mut new_state)
+        .and_then(|idx| {
+            let mut new_state = State {
+                templates: state.templates[0..idx].to_vec(),
+                args: args.to_vec(),
+            };
+            mk_value(state.templates[idx].1.clone(), &mut new_state)
         })
 }
 

@@ -29,7 +29,7 @@ extern crate tiny_http;
 use getopts::Options;
 use noc::artifacts;
 use std::env;
-use std::io;
+use std::io::{self, Read};
 use std::io::Write;
 use std::process::exit;
 use tiny_http::{Method, Request, Response, Server, StatusCode};
@@ -74,12 +74,14 @@ fn main() {
 fn parse() -> io::Result<()> {
     let stdin = io::stdin();
 
-    io::stdout().write_all(
-        nereon::noc::from_read(&mut stdin.lock())?
+    io::stdout().write_all( {
+        let mut noc = String::new();
+        stdin.lock().read_to_string(&mut noc)?;
+        nereon::noc::from_str(&noc)
             .unwrap()
             .as_noc_string()
-            .as_ref(),
-    )?;
+            .as_ref()
+    })?;
     Ok(())
 }
 

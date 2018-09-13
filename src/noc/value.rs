@@ -21,7 +21,8 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap};
+use std::str::FromStr;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Value {
@@ -31,14 +32,18 @@ pub enum Value {
 }
 
 impl Value {
-    pub fn insert(&mut self, keys: &mut VecDeque<String>, value: Value) {
-        let key = keys.pop_front().unwrap();
+    pub fn insert<I>(&mut self, keys: I, value: Value)
+    where
+        I: IntoIterator<Item = String>,
+    {
+        let mut keys = keys.into_iter().peekable();
+        let key = keys.next().unwrap();
         let map = self.as_dict_mut().unwrap();
         let old_value = map.remove(&key).filter(|v| v.is_dict());
 
         map.insert(
             key,
-            if keys.is_empty() {
+            if keys.peek().is_none() {
                 // single key so insert in current node
                 match (value, old_value) {
                     (Value::Dict(mut new), Some(Value::Dict(mut existing))) => {
@@ -51,7 +56,7 @@ impl Value {
                 }
             } else {
                 let mut node = old_value.unwrap_or_else(|| Value::Dict(HashMap::new()));
-                node.insert(keys, value);
+                node.insert(keys.collect::<Vec<_>>(), value);
                 node
             },
         );
@@ -124,15 +129,26 @@ impl Value {
         match self {
             Value::String(s) => format!("\"{}\"", s),
             Value::List(v) => {
-                let values = v.iter().map(|v| v.as_noc_string()).collect::<Vec<_>>();
-                format!("[{}]", values.join(","))
+                let values = v
+                    .iter()
+                    .map(|v| match v {
+                        Value::Dict(_) => format!("{{{}}}", v.as_noc_string()),
+                        Value::List(_) => format!("[{}]", v.as_noc_string()),
+                        Value::String(_) => v.as_noc_string(),
+                    })
+                    .collect::<Vec<_>>();
+                format!("{}", values.join(","))
             }
             Value::Dict(m) => {
                 let values = m
                     .iter()
-                    .map(|(k, v)| format!("\"{}\" {}", k, v.as_noc_string()))
+                    .map(|(k, v)| match v {
+                        Value::Dict(_) => format!("\"{}\" {{{}}}", k, v.as_noc_string()),
+                        Value::List(_) => format!("\"{}\" [{}]", k, v.as_noc_string()),
+                        Value::String(_) => format!("\"{}\" {}", k, v.as_noc_string()),
+                    })
                     .collect::<Vec<_>>();
-                format!("{{{}}}", values.join("\n"))
+                format!("{}", values.join("\n"))
             }
         }
     }
@@ -162,9 +178,18 @@ impl Value {
                             k,
                             v.as_noc_string_indented(&next_indent)
                         )
-                    }).collect::<Vec<_>>();
+                    })
+                    .collect::<Vec<_>>();
                 format!("{{\n{}\n{}}}", values.join("\n"), indent)
             }
         }
+    }
+}
+
+impl FromStr for Value {
+    type Err = String;
+
+    fn from_str(input: &str) -> Result<Self, String> {
+        super::parse(input)
     }
 }

@@ -24,30 +24,28 @@
 extern crate nereon;
 
 use nereon::Opt;
-use nereon::{nereon_init, nereon_json};
+use nereon::{nereon_init};
 use std::env;
 
 #[test]
 fn test_nos_option() {
     let options = vec![
         Opt::new(
-            "config",
+            &[],
             Some("c"),
             Some("config"),
             None,
             0,
             None,
-            Some("${file:{}}"),
             Some("Config file"),
         ),
         Opt::new(
-            "who",
+            &["who"],
             Some("w"),
             Some("who"),
             Some("TEST_WHO"),
             0,
             Some("World"),
-            None,
             Some("Entity to greet."),
         ),
     ];
@@ -71,17 +69,4 @@ fn test_nos_option() {
     }
     assert!(config.is_ok());
     println!("{:?}", config);
-
-    env::set_var("TEST_WHO", "guess who?");
-    let config = nereon_json(
-        options.clone(),
-        args(vec!["-w", "Arg", "--config", "tests/hello-who.conf"]),
-    );
-    if let Err(ref m) = config {
-        println!("Error was: {:?}", m);
-    }
-    assert!(config.is_ok());
-    let config = config.unwrap();
-    println!("{:?}", config);
-    assert!(config == "{\"config\":{\"greeting\":\"olá\"},\"who\":\"Arg\"}");
 }

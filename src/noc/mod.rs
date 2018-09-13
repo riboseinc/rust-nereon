@@ -28,20 +28,20 @@ use pest::iterators::Pair;
 use pest::prec_climber::{Assoc, Operator, PrecClimber};
 use pest::Parser;
 use std::char::from_u32;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap};
 
 mod functions;
 mod value;
 
-use self::value::Value;
+pub use self::value::Value;
 
-pub trait Noc<OK=Self> {
+pub trait Noc<OK = Self> {
     fn parse(input: &str) -> Result<OK, String>;
 }
 
 impl Noc for Value {
     fn parse(input: &str) -> Result<Value, String> {
-        from_str(input)
+        input.parse()
     }
 }
 
@@ -60,13 +60,12 @@ lazy_static! {
         Operator::new(Rule::plus, Assoc::Left) | Operator::new(Rule::minus, Assoc::Left),
         Operator::new(Rule::times, Assoc::Left)
             | Operator::new(Rule::divide, Assoc::Left)
-            | Operator::new(Rule::modulus, Assoc::Left)
-            | Operator::new(Rule::intdiv, Assoc::Left),
+            | Operator::new(Rule::modulus, Assoc::Left) | Operator::new(Rule::intdiv, Assoc::Left),
         Operator::new(Rule::power, Assoc::Left),
     ]);
 }
 
-pub fn from_str(input: &str) -> Result<Value, String> {
+fn parse(input: &str) -> Result<Value, String> {
     NocParser::parse(Rule::root, input)
         .map_err(|e| format!("{:?}", e))
         .and_then(|mut pairs| {
@@ -102,18 +101,18 @@ fn mk_dict<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, Str
                     mk_value(expressions.pop().unwrap(), state).and_then(|value| {
                         expressions
                             .into_iter()
-                            .try_fold(VecDeque::new(), |mut keys, e| {
+                            .try_fold(Vec::new(), |mut keys, e| {
                                 mk_value(e, state).and_then(|key| {
                                     key.into_string()
                                         .ok_or_else(|| "Key is not a string".to_owned())
                                         .map(|key| {
-                                            keys.push_back(key);
+                                            keys.push(key);
                                             keys
                                         })
                                 })
                             })
-                            .map(|mut keys| {
-                                dict.insert(&mut keys, value);
+                            .map(|keys| {
+                                dict.insert(keys.into_iter(), value);
                                 dict
                             })
                     })
@@ -240,24 +239,24 @@ fn apply_template(name: &str, args: &[Value], state: &mut State) -> Result<Value
 
 #[cfg(test)]
 mod test {
-    use super::{from_str, Value};
+    use super::{Value};
     use std::collections::HashMap;
     use std::iter::FromIterator;
 
     #[test]
     fn test_empty() {
-        assert_eq!(from_str("").unwrap(), Value::Dict(HashMap::new()));
+        assert_eq!("".parse::<Value>().unwrap(), Value::Dict(HashMap::new()));
     }
 
     #[test]
     fn test_key_no_value() {
-        assert!(from_str("fail").is_err());
+        assert!("fail".parse::<Value>().is_err());
     }
 
     #[test]
     fn test_key_value() {
         assert_eq!(
-            from_str("key value").unwrap(),
+            "key value".parse::<Value>().unwrap(),
             Value::Dict(HashMap::from_iter(vec![(
                 "key".to_owned(),
                 Value::String("value".to_owned()),
@@ -268,7 +267,7 @@ mod test {
     #[test]
     fn test_nested_dict() {
         assert_eq!(
-            from_str("key { key value }").unwrap(),
+            "key { key value }".parse::<Value>().unwrap(),
             Value::Dict(HashMap::from_iter(vec![(
                 "key".to_owned(),
                 Value::Dict(HashMap::from_iter(vec![(
@@ -282,7 +281,7 @@ mod test {
     #[test]
     fn test_sep_key_value_sep() {
         assert_eq!(
-            from_str(",,,,key value,,,,").unwrap(),
+            ",,,,key value,,,,".parse::<Value>().unwrap(),
             Value::Dict(HashMap::from_iter(vec![(
                 "key".to_owned(),
                 Value::String("value".to_owned()),
@@ -293,7 +292,7 @@ mod test {
     #[test]
     fn test_duplicate_key() {
         assert_eq!(
-            from_str("key value,key value1").unwrap(),
+            "key value,key value1".parse::<Value>().unwrap(),
             Value::Dict(HashMap::from_iter(vec![(
                 "key".to_owned(),
                 Value::String("value1".to_owned()),
@@ -304,7 +303,7 @@ mod test {
     #[test]
     fn test_multi_kv() {
         assert_eq!(
-            from_str("key value\nkey2 value2").unwrap(),
+            "key value\nkey2 value2".parse::<Value>().unwrap(),
             Value::Dict(HashMap::from_iter(vec![
                 ("key".to_owned(), Value::String("value".to_owned())),
                 ("key2".to_owned(), Value::String("value2".to_owned())),
@@ -316,31 +315,31 @@ mod test {
     fn test_quoted_kv() {
         let a = r#""key\n1" "value\n1""#;
         let b = "\"key\n1\" \"value\n1\"";
-        assert_eq!(from_str(a).unwrap().as_noc_string(), format!("{{{}}}", b));
+        assert_eq!(a.parse::<Value>().unwrap().as_noc_string(), b);
     }
 
     #[test]
     fn test_bad_escape() {
         let a = r#""key\n1" "value\1""#;
-        assert!(from_str(a).is_err());
+        assert!(a.parse::<Value>().is_err());
     }
 
     #[test]
     fn test_unalanced() {
         let a = "test {]";
-        assert!(from_str(a).is_err());
+        assert!(a.parse::<Value>().is_err());
     }
 
     #[test]
     fn test_quoted() {
         vec![
-            (r#"a "\x20""#, r#"{"a" " "}"#),
-            (r#"a "\040""#, r#"{"a" " "}"#),
-            (r#"a "\u0020""#, r#"{"a" " "}"#),
-            (r#"a "\U00000020""#, r#"{"a" " "}"#),
+            (r#"a "\x20""#, r#""a" " ""#),
+            (r#"a "\040""#, r#""a" " ""#),
+            (r#"a "\u0020""#, r#""a" " ""#),
+            (r#"a "\U00000020""#, r#""a" " ""#),
         ].iter()
             .for_each(|(a, b)| {
-                assert_eq!(&from_str(a).unwrap().as_noc_string(), b);
+                assert_eq!(&a.parse::<Value>().unwrap().as_noc_string(), b);
             });
     }
 
@@ -352,23 +351,23 @@ mod test {
             r#"a "\u020""#,
             r#"a "\U00000g0""#,
         ].iter()
-            .for_each(|a| assert!(&from_str(a).is_err()));
+            .for_each(|a| assert!(&a.parse::<Value>().is_err()));
     }
 
     #[test]
     fn test_list() {
         vec![
-            ("a []", r#"{"a" []}"#),
-            ("a [1,2]", r#"{"a" ["1","2"]}"#),
-            ("a [{}]", r#"{"a" [{}]}"#),
-            ("a [\n\n]", r#"{"a" []}"#),
-            ("a [\n1\n,2\n]", r#"{"a" ["1","2"]}"#),
-            ("a [,,1,,2]", r#"{"a" ["1","2"]}"#),
-            ("a [1,,2,,]", r#"{"a" ["1","2"]}"#),
-            ("a [{b [1,2]}]", r#"{"a" [{"b" ["1","2"]}]}"#),
+            ("a []", r#""a" []"#),
+            ("a [1,2]", r#""a" ["1","2"]"#),
+            ("a [{}]", r#""a" [{}]"#),
+            ("a [\n\n]", r#""a" []"#),
+            ("a [\n1\n,2\n]", r#""a" ["1","2"]"#),
+            ("a [,,1,,2]", r#""a" ["1","2"]"#),
+            ("a [1,,2,,]", r#""a" ["1","2"]"#),
+            ("a [{b [1,2]}]", r#""a" [{"b" ["1","2"]}]"#),
         ].iter()
             .for_each(|(a, b)| {
-                assert_eq!(&from_str(a).unwrap().as_noc_string(), b);
+                assert_eq!(&a.parse::<Value>().unwrap().as_noc_string(), b);
             });
     }
 
@@ -377,7 +376,7 @@ mod test {
         let a = r#"let(template, value),
  key apply(template)"#;
         assert_eq!(
-            from_str(a).unwrap(),
+            a.parse::<Value>().unwrap(),
             Value::Dict(HashMap::from_iter(vec![(
                 "key".to_owned(),
                 Value::String("value".to_owned()),
@@ -390,7 +389,7 @@ mod test {
         let a = r#"let(template, [value])
                    key apply(template)"#;
         assert_eq!(
-            from_str(a).unwrap(),
+            a.parse::<Value>().unwrap(),
             Value::Dict(HashMap::from_iter(vec![(
                 "key".to_owned(),
                 Value::List(vec![Value::String("value".to_owned())]),
@@ -403,7 +402,7 @@ mod test {
         let a = r#"let(template, arg(0))
                    key apply(template, [value])"#;
         assert_eq!(
-            from_str(a).unwrap(),
+            a.parse::<Value>().unwrap(),
             Value::Dict(HashMap::from_iter(vec![(
                 "key".to_owned(),
                 Value::List(vec![Value::String("value".to_owned())]),
@@ -414,21 +413,22 @@ mod test {
     #[test]
     fn calculate() {
         vec![
-            ("a 1 + 1", r#"{"a" "2"}"#),
-            ("a 1 - -1", r#"{"a" "2"}"#),
-            ("a 1 * -10", r#"{"a" "-10"}"#),
-            ("a \"-1\" * 10", r#"{"a" "-10"}"#),
-            ("a (2 + 3)*4", r#"{"a" "20"}"#),
-            ("a 2+3*4", r#"{"a" "14"}"#),
-            ("a 180 / 3.14", r#"{"a" "57.324840764331206"}"#),
-            ("a 1 / 2", r#"{"a" "0.5"}"#),
-            ("a 1 \\ 2", r#"{"a" "0"}"#),
-            ("a 5 % 2", r#"{"a" "1"}"#),
-            ("a 10 ^ 2", r#"{"a" "100"}"#),
-            ("a 10 ^ (2+1)", r#"{"a" "1000"}"#),
-            ("a 10 ^ -1", r#"{"a" "0.1"}"#),
-        ].iter().for_each(|(a, b)| {
-            assert_eq!(&from_str(a).unwrap().as_noc_string(), b);
-        });
+            ("a 1 + 1", r#""a" "2""#),
+            ("a 1 - -1", r#""a" "2""#),
+            ("a 1 * -10", r#""a" "-10""#),
+            ("a \"-1\" * 10", r#""a" "-10""#),
+            ("a (2 + 3)*4", r#""a" "20""#),
+            ("a 2+3*4", r#""a" "14""#),
+            ("a 180 / 3.14", r#""a" "57.324840764331206""#),
+            ("a 1 / 2", r#""a" "0.5""#),
+            ("a 1 \\ 2", r#""a" "0""#),
+            ("a 5 % 2", r#""a" "1""#),
+            ("a 10 ^ 2", r#""a" "100""#),
+            ("a 10 ^ (2+1)", r#""a" "1000""#),
+            ("a 10 ^ -1", r#""a" "0.1""#),
+        ].iter()
+            .for_each(|(a, b)| {
+                assert_eq!(&a.parse::<Value>().unwrap().as_noc_string(), b);
+            });
     }
 }

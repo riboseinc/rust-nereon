@@ -33,35 +33,23 @@ pub struct Opt {
     pub long: Option<String>,
     /// Environment variable to use if option not parsed from command line.
     pub env: Option<String>,
-    /// `OptFlag` values as `u32`. eg `Multiple as u32 | NoArg as u32`.
-    pub flags: u32,
+    /// Value to use if option is present without an arg
+    pub default_arg: Option<String>,
     /// Value to use if not parsed from command line or environment variable.
     pub default: Option<String>,
     /// Description of option used to generate the usage message.
-    pub usage: Option<String>,
-}
-
-pub enum OptFlag {
-    /// Option is not required.
-    Optional = 1,
-    /// Option can appear more than once.
-    Multiple = 2,
-    /// Option doesn;t take an argument.
-    NoArg = 4,
-    /// Option may be used with or without an argument.
-    OptionalArg = 8,
+    pub usage: String,
 }
 
 impl Opt {
     /// Creates a new `Opt` instance for use with [nereon_init](fn.nereon_init.html)
-    /// or [nereon_json](fn.nereon_json.html)
     ///
     /// # Arguments
     /// * `key` - Dot separated path of destination node for this option. eg. `"root.leaf"`.
     /// * `short` - Short option as single character string `"s"` matches `-s`.
     /// * `long` - Long option `"long"` matches `--long`.
     /// * `env` - Environment variable to use if option not parsed from command line.
-    /// * `flags` - `OptFlag` values as `u32`. eg `Multiple as u32 | NoArg as u32`.
+    /// * `default_arg` Value to use if option is present but has no arg.
     /// * `default` - Value to use if not parsed from command line or environment variable.
     /// * `usage` - Description of option used to generate the usage message.
     pub fn new(
@@ -69,47 +57,38 @@ impl Opt {
         short: Option<&str>,
         long: Option<&str>,
         env: Option<&str>,
-        flags: u32,
+        default_arg: Option<&str>,
         default: Option<&str>,
-        usage: Option<&str>,
+        usage: &str,
     ) -> Opt {
         Opt {
-            key: {
-                key.iter().map(|k| (*k).to_owned()).collect()
-            },
+            key: { key.iter().map(|k| (*k).to_owned()).collect() },
             short: short.map(String::from),
             long: long.map(String::from),
             env: env.map(String::from),
-            flags: flags,
+            default_arg: default_arg.map(String::from),
             default: default.map(String::from),
-            usage: usage.map(String::from),
+            usage: usage.to_owned(),
         }
     }
 
-    fn to_getopts(&self, options: &mut getopts::Options) {
+    pub fn to_getopts<'a>(&self, mut options: getopts::Options) -> getopts::Options {
         if self.short.is_some() || self.long.is_some() {
-            let mut hasarg = getopts::HasArg::Yes;
-            if self.flags & OptFlag::NoArg as u32 != 0 {
-                hasarg = getopts::HasArg::No;
-            } else if self.flags & OptFlag::OptionalArg as u32 != 0 {
-                hasarg = getopts::HasArg::Maybe;
-            }
+            let hasarg = if let Some(_) = self.default_arg {
+                getopts::HasArg::Maybe
+            } else {
+                getopts::HasArg::Yes
+            };
 
             options.opt(
                 self.short.as_ref().map_or("", String::as_str),
                 self.long.as_ref().map_or("", String::as_str),
-                self.usage.as_ref().map_or("", String::as_str),
+                self.usage.as_str(),
                 "",
                 hasarg,
-                // getopts occurrence handling is a bit broken
-                // as it disallows (opt AND multi) or (req AND multi)
-                // so we use Multi and deal with it later
-                getopts::Occur::Multi,
+                getopts::Occur::Optional,
             );
         }
+        options
     }
-}
-
-pub fn opt_to_getopts(opt: &Opt, options: &mut getopts::Options) {
-    opt.to_getopts(options);
 }

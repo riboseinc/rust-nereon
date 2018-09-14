@@ -23,32 +23,38 @@
 
 extern crate nereon;
 
+use nereon::nereon_init;
 use nereon::Opt;
-use nereon::{nereon_init};
 use std::env;
+use std::collections::HashMap;
 
 #[test]
 fn test_nos_option() {
-    let options = vec![
+    let mut options = HashMap::new();
+    options.insert(
+        "config".to_owned(),
         Opt::new(
             &[],
             Some("c"),
             Some("config"),
             None,
-            0,
             None,
-            Some("Config file"),
+            None,
+            "Config file",
         ),
+    );
+    options.insert(
+        "who".to_owned(),
         Opt::new(
             &["who"],
             Some("w"),
             Some("who"),
             Some("TEST_WHO"),
-            0,
+            None,
             Some("World"),
-            Some("Entity to greet."),
+            "Entity to greet.",
         ),
-    ];
+    );
     let args = |v: Vec<&str>| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
 
     let config = nereon_init(

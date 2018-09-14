@@ -28,7 +28,7 @@ use pest::iterators::Pair;
 use pest::prec_climber::{Assoc, Operator, PrecClimber};
 use pest::Parser;
 use std::char::from_u32;
-use std::collections::{HashMap};
+use std::collections::HashMap;
 
 mod functions;
 mod value;
@@ -60,7 +60,8 @@ lazy_static! {
         Operator::new(Rule::plus, Assoc::Left) | Operator::new(Rule::minus, Assoc::Left),
         Operator::new(Rule::times, Assoc::Left)
             | Operator::new(Rule::divide, Assoc::Left)
-            | Operator::new(Rule::modulus, Assoc::Left) | Operator::new(Rule::intdiv, Assoc::Left),
+            | Operator::new(Rule::modulus, Assoc::Left)
+            | Operator::new(Rule::intdiv, Assoc::Left),
         Operator::new(Rule::power, Assoc::Left),
     ]);
 }
@@ -239,7 +240,7 @@ fn apply_template(name: &str, args: &[Value], state: &mut State) -> Result<Value
 
 #[cfg(test)]
 mod test {
-    use super::{Value};
+    use super::Value;
     use std::collections::HashMap;
     use std::iter::FromIterator;
 

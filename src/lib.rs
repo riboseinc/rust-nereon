@@ -55,7 +55,7 @@
 //!         Some("nereon_config"),
 //!         0,
 //!         None,
-//!         Some("Config file"),
+//!         "Config file",
 //!     ),
 //!     Opt::new(
 //!         &["user", "admin", "uid"],
@@ -64,7 +64,7 @@
 //!         None,
 //!         0,
 //!         None,
-//!         Some("UID of admin user"),
+//!         "UID of admin user",
 //!     ),
 //!     Opt::new(
 //!         &["user", "admin", "permissions"],
@@ -73,7 +73,7 @@
 //!         Some("nereon_permissions"),
 //!         0,
 //!         None,
-//!         Some("Permissions for admin user"),
+//!         "Permissions for admin user",
 //!     ),
 //! ];
 //!
@@ -110,15 +110,15 @@ extern crate pest;
 #[macro_use]
 extern crate lazy_static;
 
-use std::collections::{HashMap};
+use getopts::Matches;
+use std::collections::HashMap;
 use std::env;
 use std::fs::File;
 use std::io::Read;
 
 mod nos;
 
-use nos::opt_to_getopts;
-pub use nos::{Opt, OptFlag};
+pub use nos::Opt;
 
 pub mod noc;
 
@@ -141,7 +141,7 @@ pub use noc::Value;
 ///         Some("NEREON_USER"),
 ///         0,
 ///         Some("admin"),
-///         Some("User name"),
+///         "User name",
 ///     ),
 /// ];
 /// let args = "-u root".split(" ").map(|a| a.to_owned()).collect::<Vec<_>>();
@@ -152,92 +152,83 @@ pub use noc::Value;
 
 pub fn nereon_init<T, U>(options: T, args: U) -> Result<Value, String>
 where
-    T: IntoIterator<Item = Opt>,
+    T: IntoIterator<Item = (String, Opt)>,
     U: IntoIterator<Item = String>,
 {
+    fn get_arg<'a>(
+        opt: &Opt,
+        matches: &'a Matches,
+        config: Option<&Value>,
+    ) -> Result<String, String> {
+        opt.long.as_ref().and_then(|n| matches.opt_str(&n))
+            .or_else(|| opt.short.as_ref().and_then(|n| matches.opt_str(&n)))
+            .or_else(|| {
+                opt.env
+                    .as_ref()
+                    .and_then(|n| env::var(&n).ok())
+                    .or_else(|| {
+                        config.and_then(|c| {
+                            c.get(opt.key.clone())
+                                .filter(|v| v.is_string())
+                                .and_then(|v| v.as_string().map(String::from))
+                        })
+                    })
+                    .or_else(|| opt.default.as_ref().map(|v| v.to_owned()))
+            })
+            .map_or_else(
+                || {
+                    Err(opt.long.as_ref()
+                        .or(opt.short.as_ref())
+                        .map_or(format!("Required option not supplied {:?}", opt), |n| {
+                            format!("Option is required ({})", n)
+                        }))
+                },
+                |v| Ok(v),
+            )
+    }
+
     // collect options
-    let mut options = options.into_iter().collect::<Vec<_>>();
+    let mut options = options.into_iter().collect::<HashMap<String, Opt>>();
 
     // get command line options
-    let mut getopts_options = getopts::Options::new();
+    let matches = options
+        .values()
+        .fold(getopts::Options::new(), |opts, o| o.to_getopts(opts))
+        .parse(args)
+        .map_err(|e| format!("{:?}", e))?;
 
-    for o in &options {
-        opt_to_getopts(&o, &mut getopts_options);
-    }
-
-    let matches = match getopts_options.parse(args) {
-        Ok(ms) => ms,
-        Err(e) => return Err(format!("{:?}", e)),
-    };
-
-    // rearrange options to put file option first
-    // file option, if any, has 0 length key
-    if let Some(idx) = options.iter().position(|o| o.key.is_empty()) {
-        let t = options.swap_remove(idx);
-        options.push(t);
-        let t = options.swap_remove(0);
-        options.push(t);
-    }
+    // read the config file if there is one
+    let mut config = if options
+        .get("config")
+        .filter(|o| !o.key.is_empty())
+        .is_some()
+    {
+        options
+            .remove("config")
+            .ok_or_else(|| unreachable!())
+            .and_then(|ref o| {
+                get_arg(o, &matches, None).and_then(|n| {
+                    let mut buffer = String::new();
+                    File::open(&n)
+                        .and_then(|ref mut f| f.read_to_string(&mut buffer))
+                        .map_err(|e| format!("{:?}", e))
+                        .and_then(|_| buffer.parse())
+                })
+            })
+    } else {
+        Ok(Value::Dict(HashMap::new()))
+    }?;
 
     // build the config tree
-    let mut config = Value::Dict(HashMap::new());
-    for o in options {
-        let long_opt = o.long.as_ref();
-        let short_opt = o.short.as_ref();
-        let env = o.env.as_ref();
+    options
+        .values()
+        .try_fold(&mut config, |mut config, option| {
+            get_arg(option, &matches, Some(&mut config)).and_then(|v| {
+                config.insert(option.key.clone(), Value::String(v.to_owned()));
+                Ok(config)
+            })
+        })?;
 
-        // get values for each option, first looking in command line arguments
-        // then the environment and finally use default
-        let mut values = long_opt
-            .map(|n| matches.opt_strs(&n))
-            .or_else(|| short_opt.map(|n| matches.opt_strs(&n)))
-            .filter(|vs| !vs.is_empty())
-            .or_else(|| {
-                env.and_then(|n| env::var(&n).ok())
-                    .or_else(|| o.default.as_ref().map(|v| v.to_owned()))
-                    .map(|v| vec![v])
-            });
-
-        let mut values = match values {
-            Some(vs) => vs,
-            None => {
-                return Err(long_opt
-                    .or(short_opt)
-                           .map_or(format!("Required option not supplied {:?}", o), |n| {
-                        format!("Option is required ({})", n)
-                    }))
-            }
-        };
-
-        // read config file if this option is file_opt
-        // file option, if any, has 0 length key
-        if o.key.is_empty() {
-            config = {
-                let mut buffer = String::new();
-                let c = File::open(&values[0])
-                    .and_then(|ref mut f| f.read_to_string(&mut buffer))
-                    .map_err(|e| format!("{:?}", e))
-                    .and_then(|_| buffer.parse());
-                if c.is_err() {
-                    return c;
-                } else {
-                    c.unwrap()
-                }
-            };
-            continue;
-        }
-
-        // convert to `noc::Value::String`s
-        let mut values = values.drain(..).map(Value::String).collect::<Vec<_>>();
-
-        // convert to `String` or `List` depending on flags
-        let mut value = match o.flags & OptFlag::Multiple as u32 {
-            0 => values.swap_remove(0),
-            _ => Value::List(values),
-        };
-
-        config.insert(o.key, value);
-    }
     Ok(config)
 }
 

@@ -63,6 +63,22 @@ impl Value {
         );
     }
 
+    pub fn get<'a, I>(&self, keys: I) -> Option<&Value>
+    where
+        I: IntoIterator<Item = String>,
+    {
+        let mut keys = keys.into_iter();
+        let key = keys.next();
+        key.map_or_else(
+            || Some(self),
+            |k| {
+                self.as_dict()
+                    .and_then(|d| d.get(&k))
+                    .and_then(|v| v.get(keys))
+            },
+        )
+    }
+
     pub fn as_string(&self) -> Option<&str> {
         match self {
             Value::String(s) => Some(s.as_ref()),
@@ -174,7 +190,7 @@ impl Value {
                 })
                 .collect::<Vec<_>>()
                 .join("\n"),
-            Value::Dict(m) => BTreeMap::from_iter(m.iter())
+            Value::Dict(m) => BTreeMap::from_iter(m.iter()) // sort
                 .iter()
                 .map(|(k, v)| {
                     let s = v.as_s_indent(indent + 1);

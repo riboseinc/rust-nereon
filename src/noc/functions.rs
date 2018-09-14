@@ -66,7 +66,7 @@ pub fn divide(args: &[Value]) -> Result<Value, String> {
 pub fn power(args: &[Value]) -> Result<Value, String> {
     convert::<i64>(args)
         .and_then(|(lhs, rhs)| {
-            if rhs > 0 && rhs <= u32::MAX as i64 {
+            if rhs > 0 && rhs <= i64::from(u32::MAX) {
                 Ok(lhs.pow(rhs as u32).to_string())
             } else {
                 Err(())

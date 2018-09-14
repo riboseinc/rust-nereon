@@ -22,12 +22,11 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 extern crate getopts;
-extern crate regex;
 
 #[derive(Clone, Debug, Default)]
 pub struct Opt {
     /// Dot separated path of destination node for this option. eg. `"root.leaf"`.
-    pub node: String,
+    pub key: Vec<String>,
     /// Short option as single character string `"s"` matches `-s`.
     pub short: Option<String>,
     /// Long option `"long"` matches `--long`.
@@ -38,8 +37,6 @@ pub struct Opt {
     pub flags: u32,
     /// Value to use if not parsed from command line or environment variable.
     pub default: Option<String>,
-    /// Format the option. This is a simple string format where the first `{}` will be replaced by the parsed value.
-    pub format: Option<String>,
     /// Description of option used to generate the usage message.
     pub usage: Option<String>,
 }
@@ -60,32 +57,31 @@ impl Opt {
     /// or [nereon_json](fn.nereon_json.html)
     ///
     /// # Arguments
-    /// * `node` - Dot separated path of destination node for this option. eg. `"root.leaf"`.
+    /// * `key` - Dot separated path of destination node for this option. eg. `"root.leaf"`.
     /// * `short` - Short option as single character string `"s"` matches `-s`.
     /// * `long` - Long option `"long"` matches `--long`.
     /// * `env` - Environment variable to use if option not parsed from command line.
     /// * `flags` - `OptFlag` values as `u32`. eg `Multiple as u32 | NoArg as u32`.
     /// * `default` - Value to use if not parsed from command line or environment variable.
-    /// * `format` - Format the option. This is a simple string format where the first `{}` will be replaced by the parsed value.
     /// * `usage` - Description of option used to generate the usage message.
     pub fn new(
-        node: &str,
+        key: &[&str],
         short: Option<&str>,
         long: Option<&str>,
         env: Option<&str>,
         flags: u32,
         default: Option<&str>,
-        format: Option<&str>,
         usage: Option<&str>,
     ) -> Opt {
         Opt {
-            node: node.to_owned(),
+            key: {
+                key.iter().map(|k| (*k).to_owned()).collect()
+            },
             short: short.map(String::from),
             long: long.map(String::from),
             env: env.map(String::from),
             flags: flags,
             default: default.map(String::from),
-            format: format.map(String::from),
             usage: usage.map(String::from),
         }
     }

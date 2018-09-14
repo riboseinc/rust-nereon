@@ -21,7 +21,8 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-use std::collections::{HashMap};
+use std::collections::{BTreeMap, HashMap};
+use std::iter::{self, FromIterator};
 use std::str::FromStr;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -137,7 +138,7 @@ impl Value {
                         Value::String(_) => v.as_noc_string(),
                     })
                     .collect::<Vec<_>>();
-                format!("{}", values.join(","))
+                values.join(",")
             }
             Value::Dict(m) => {
                 let values = m
@@ -148,40 +149,43 @@ impl Value {
                         Value::String(_) => format!("\"{}\" {}", k, v.as_noc_string()),
                     })
                     .collect::<Vec<_>>();
-                format!("{}", values.join("\n"))
+                values.join("\n")
             }
         }
     }
 
     pub fn as_noc_string_pretty(&self) -> String {
-        self.as_noc_string_indented("")
+        self.as_s_indent(0)
     }
 
-    fn as_noc_string_indented(&self, indent: &str) -> String {
+    fn as_s_indent(&self, indent: usize) -> String {
+        let tabs = iter::repeat('\t').take(indent).collect::<String>();
         match self {
             Value::String(s) => format!("\"{}\"", s),
-            Value::List(v) => {
-                let values = v
-                    .iter()
-                    .map(|v| v.as_noc_string_indented(&(indent.to_owned() + "\t")))
-                    .collect::<Vec<_>>();
-                format!("[{}]", values.join(","))
-            }
-            Value::Dict(m) => {
-                let next_indent = indent.to_owned() + "\t";
-                let values = m
-                    .iter()
-                    .map(|(k, v)| {
-                        format!(
-                            "{}\"{}\" {}",
-                            next_indent,
-                            k,
-                            v.as_noc_string_indented(&next_indent)
-                        )
-                    })
-                    .collect::<Vec<_>>();
-                format!("{{\n{}\n{}}}", values.join("\n"), indent)
-            }
+            Value::List(v) => v
+                .iter()
+                .map(|v| {
+                    let s = v.as_s_indent(indent + 1);
+                    match v {
+                        Value::Dict(_) => format!("{}{{\n{}\n{}}}", tabs, s, tabs),
+                        Value::List(_) => format!("{}[\n{}\n{}]", tabs, s, tabs),
+                        Value::String(_) => format!("{}{}", tabs, s),
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n"),
+            Value::Dict(m) => BTreeMap::from_iter(m.iter())
+                .iter()
+                .map(|(k, v)| {
+                    let s = v.as_s_indent(indent + 1);
+                    match v {
+                        Value::Dict(_) => format!("{}\"{}\" {{\n{}\n{}}}", tabs, k, s, tabs),
+                        Value::List(_) => format!("{}\"{}\" [\n{}\n{}]", tabs, k, s, tabs),
+                        Value::String(_) => format!("{}\"{}\" {}", tabs, k, s),
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n"),
         }
     }
 }

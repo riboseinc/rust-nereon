@@ -100,8 +100,8 @@ fn convert<T: FromStr>(args: &[Value]) -> Result<(T, T), ()> {
                 .ok_or(())
         })
         .and_then(|(lhs, rhs)| {
-            lhs.as_string()
-                .and_then(|lhs| rhs.as_string().map(|rhs| (lhs, rhs)))
+            lhs.as_str()
+                .and_then(|lhs| rhs.as_str().map(|rhs| (lhs, rhs)))
                 .ok_or(())
         })
         .and_then(|(lhs, rhs)| {

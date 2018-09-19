@@ -101,7 +101,7 @@
 //! std::fs::remove_file("/tmp/nereon_test");
 //! ```
 
-extern crate getopts;
+extern crate clap;
 
 #[macro_use]
 extern crate pest_derive;
@@ -110,11 +110,7 @@ extern crate pest;
 #[macro_use]
 extern crate lazy_static;
 
-use getopts::Matches;
 use std::collections::HashMap;
-use std::env;
-use std::fs::File;
-use std::io::Read;
 
 mod nos;
 
@@ -150,11 +146,12 @@ pub use noc::Value;
 /// assert_eq!(nereon_init(options, args), Ok(expected));
 /// ```
 
-pub fn nereon_init<T, U>(options: T, args: U) -> Result<Value, String>
+pub fn nereon_init<'a, T, U>(options: T, _args: &U) -> Result<Value, String>
 where
     T: IntoIterator<Item = (String, Opt)>,
-    U: IntoIterator<Item = String>,
+    U: IntoIterator<Item = &'a str>,
 {
+    /*
     fn get_arg<'a>(
         opt: &Opt,
         matches: &'a Matches,
@@ -186,10 +183,10 @@ where
                 |v| Ok(v),
             )
     }
-
+*/
     // collect options
-    let mut options = options.into_iter().collect::<HashMap<String, Opt>>();
-
+    let mut _options = options.into_iter().collect::<HashMap<String, Opt>>();
+/*
     // get command line options
     let matches = options
         .values()
@@ -228,8 +225,8 @@ where
                 Ok(config)
             })
         })?;
-
-    Ok(config)
+*/
+    Ok(Value::Dict(HashMap::new()))
 }
 
 #[cfg(test)]

@@ -33,7 +33,7 @@ use std::collections::HashMap;
 mod functions;
 mod value;
 
-pub use self::value::Value;
+pub use self::value::{FromValue, Value};
 
 pub trait Noc<OK = Self> {
     fn parse(input: &str) -> Result<OK, String>;
@@ -56,14 +56,16 @@ struct State<'a> {
 struct NocParser;
 
 lazy_static! {
-    static ref CLIMBER: PrecClimber<Rule> = PrecClimber::new(vec![
-        Operator::new(Rule::plus, Assoc::Left) | Operator::new(Rule::minus, Assoc::Left),
-        Operator::new(Rule::times, Assoc::Left)
-            | Operator::new(Rule::divide, Assoc::Left)
-            | Operator::new(Rule::modulus, Assoc::Left)
-            | Operator::new(Rule::intdiv, Assoc::Left),
-        Operator::new(Rule::power, Assoc::Left),
-    ]);
+    static ref CLIMBER: PrecClimber<Rule> = {
+        let plus = Operator::new(Rule::plus, Assoc::Left);
+        let minus = Operator::new(Rule::minus, Assoc::Left);
+        let times = Operator::new(Rule::times, Assoc::Left);
+        let divide = Operator::new(Rule::divide, Assoc::Left);
+        let modulus = Operator::new(Rule::modulus, Assoc::Left);
+        let intdiv = Operator::new(Rule::intdiv, Assoc::Left);
+        let power = Operator::new(Rule::power, Assoc::Left);
+        PrecClimber::new(vec![plus | minus, times | divide | modulus | intdiv, power])
+    };
 }
 
 fn parse(input: &str) -> Result<Value, String> {
@@ -207,12 +209,12 @@ fn apply_function<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Val
     let name = iter.next().unwrap().as_str();
     mk_list(iter.next().unwrap(), state).and_then(|args| match name {
         "apply" => args[0]
-            .as_string()
+            .as_str()
             .ok_or_else(|| "Template name isn't a string".to_owned())
             .and_then(|name| apply_template(name, &args[1..], state)),
         "arg" => match args.len() {
             1 => args[0]
-                .as_string()
+                .as_str()
                 .ok_or(())
                 .and_then(|arg| arg.parse::<usize>().map_err(|_| ()))
                 .and_then(|n| state.args.get(n).ok_or(()))

@@ -32,6 +32,26 @@ pub enum Value {
     List(Vec<Value>),
 }
 
+pub trait FromValue<OK = Self> {
+    fn from_value(value: &Value) -> Result<OK, String>;
+    fn from_kv<'a, I>(keys: I, value: &Value) -> Result<OK, String>
+    where
+        I: IntoIterator<Item = &'a str>,
+    {
+        value
+            .get(keys)
+            .map_or_else(|| Err("No such value".to_owned()), Self::from_value)
+    }
+    fn from_kv_optional<'a, I>(keys: I, value: &Value) -> Result<Option<OK>, String>
+    where
+        I: IntoIterator<Item = &'a str>,
+    {
+        value
+            .get(keys)
+            .map_or_else(|| Ok(None), |value| Self::from_value(value).map(Some))
+    }
+}
+
 impl Value {
     pub fn insert<I>(&mut self, keys: I, value: Value)
     where
@@ -65,7 +85,7 @@ impl Value {
 
     pub fn get<'a, I>(&self, keys: I) -> Option<&Value>
     where
-        I: IntoIterator<Item = String>,
+        I: IntoIterator<Item = &'a str>,
     {
         let mut keys = keys.into_iter();
         let key = keys.next();
@@ -73,13 +93,48 @@ impl Value {
             || Some(self),
             |k| {
                 self.as_dict()
-                    .and_then(|d| d.get(&k))
+                    .and_then(|d| d.get(k))
                     .and_then(|v| v.get(keys))
             },
         )
     }
 
-    pub fn as_string(&self) -> Option<&str> {
+    pub fn get_str<'a, I>(&self, keys: I) -> Result<&str, String>
+    where
+        I: IntoIterator<Item = &'a str>,
+    {
+        self.get(keys).map_or_else(
+            || Err("No such value".to_owned()),
+            |value| {
+                value
+                    .as_str()
+                    .ok_or_else(|| "Value is not a string".to_owned())
+            },
+        )
+    }
+
+    pub fn get_string<'a, I>(&self, keys: I) -> Result<String, String>
+    where
+        I: IntoIterator<Item = &'a str>,
+    {
+        self.get_str(keys).map(String::from)
+    }
+
+    pub fn get_dict<'a, I>(&'a self, keys: I) -> Result<&'a HashMap<String, Value>, String>
+    where
+        I: IntoIterator<Item = &'a str>,
+    {
+        self.get(keys).map_or_else(
+            || Err("No such value".to_owned()),
+            |value| {
+                value
+                    .as_dict()
+                    .ok_or_else(|| "Value is not a dict".to_owned())
+            },
+        )
+    }
+
+    pub fn as_str(&self) -> Option<&str> {
         match self {
             Value::String(s) => Some(s.as_ref()),
             _ => None,
@@ -211,5 +266,14 @@ impl FromStr for Value {
 
     fn from_str(input: &str) -> Result<Self, String> {
         super::parse(input)
+    }
+}
+
+impl FromValue for String {
+    fn from_value(value: &Value) -> Result<Self, String> {
+        value
+            .as_str()
+            .map(String::from)
+            .map_or_else(|| Err("Value is not a string".to_owned()), Ok)
     }
 }

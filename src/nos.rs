@@ -21,7 +21,130 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-extern crate getopts;
+extern crate clap;
+//extern crate noc;
+
+use noc::{FromValue, Value};
+use std::collections::HashMap;
+
+pub struct Command {
+    pub commands: HashMap<String, Command>,
+    pub options: HashMap<String, UserOption>,
+}
+
+pub struct UserOption {
+    pub short: Option<String>,
+    pub long: Option<String>,
+    pub env: Option<String>,
+    pub default_arg: Option<String>,
+    pub default: Option<String>,
+    pub usage: String,
+    pub key: String,
+}
+
+pub struct Nos {
+    pub name: String,
+    pub author: String,
+    pub version: String,
+    pub license: String,
+    pub commands: HashMap<String, Command>,
+    pub options: HashMap<String, UserOption>,
+}
+
+impl FromValue for Command {
+    fn from_value(value: &Value) -> Result<Self, String> {
+        value.get_dict(vec!["command"]).and_then(|commands| {
+            commands
+                .iter()
+                .try_fold(HashMap::new(), |mut cs, (k, v)| {
+                    Command::from_value(v).map(|c| {
+                        cs.insert(k.to_owned(), c);
+                        cs
+                    })
+                })
+                .and_then(|commands| {
+                    value.get_dict(vec!["option"]).and_then(|options| {
+                        options.iter()
+                            .try_fold(HashMap::new(), |mut os, (k, v)| {
+                                UserOption::from_value(v).map(|o| {
+                                    os.insert(k.to_owned(), o);
+                                    os
+                                })
+                            })
+                            .map(|options| Command { commands, options })
+                    })
+                })
+        })
+    }
+}
+
+impl FromValue for UserOption {
+    fn from_value(value: &Value) -> Result<Self, String> {
+        String::from_kv_optional(vec!["short"], value).and_then(|short| {
+            String::from_kv_optional(vec!["long"], value).and_then(|long| {
+                String::from_kv_optional(vec!["env"], value).and_then(|env| {
+                    String::from_kv_optional(vec!["default_arg"], value).and_then(|default_arg| {
+                        String::from_kv_optional(vec!["default"], value).and_then(|default| {
+                            String::from_kv(vec!["usage"], value).and_then(|usage| {
+                                String::from_kv(vec!["key"], value).map(|key| UserOption {
+                                    short,
+                                    long,
+                                    env,
+                                    default_arg,
+                                    default,
+                                    usage,
+                                    key,
+                                })
+                            })
+                        })
+                    })
+                })
+            })
+        })
+    }
+}
+
+impl FromValue for Nos {
+    fn from_value(value: &Value) -> Result<Self, String> {
+        value.get_string(vec!["name"]).and_then(|name| {
+            value.get_string(vec!["author"]).and_then(|author| {
+                value.get_string(vec!["version"]).and_then(|version| {
+                    value.get_string(vec!["license"]).and_then(|license| {
+                        value.get_dict(vec!["command"]).and_then(|commands| {
+                            commands.iter()
+                                .try_fold(HashMap::new(), |mut cs, (k, v)| {
+                                    Command::from_value(v).map(|c| {
+                                        cs.insert(k.to_owned(), c);
+                                        cs
+                                    })
+                                })
+                                .and_then(|commands| {
+                                    value.get_dict(vec!["option"]).and_then(|options| {
+                                        options.iter()
+                                            .try_fold(HashMap::new(), |mut os, (k, v)| {
+                                                UserOption::from_value(v).map(|o| {
+                                                    os.insert(k.to_owned(), o);
+                                                    os
+                                                })
+                                            })
+                                            .map(|options| Nos {
+                                                name,
+                                                author,
+                                                version,
+                                                license,
+                                                commands,
+                                                options,
+                                            })
+                                    })
+                                })
+                        })
+                    })
+                })
+
+            })
+        })
+    }
+}
 
 #[derive(Clone, Debug, Default)]
 pub struct Opt {
@@ -72,6 +195,7 @@ impl Opt {
         }
     }
 
+    /*
     pub fn to_getopts<'a>(&self, mut options: getopts::Options) -> getopts::Options {
         if self.short.is_some() || self.long.is_some() {
             let hasarg = if let Some(_) = self.default_arg {
@@ -90,5 +214,5 @@ impl Opt {
             );
         }
         options
-    }
+    }*/
 }

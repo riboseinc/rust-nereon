@@ -55,20 +55,19 @@ fn test_nos_option() {
             "Entity to greet.",
         ),
     );
-    let args = |v: Vec<&str>| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
 
     let config = nereon_init(
         options.clone(),
-        vec!["-p"].iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+        &vec!["-p"],
     );
     assert!(config.is_err());
-    let config = nereon_init(options.clone(), args(vec!["-w"]));
+    let config = nereon_init(options.clone(), &vec!["-w"]);
     assert!(config.is_err());
 
     env::set_var("TEST_WHO", "guess who?");
     let config = nereon_init(
         options.clone(),
-        args(vec!["-w", "Arg", "--config", "tests/hello-who.conf"]),
+        &vec!["-w", "Arg", "--config", "tests/hello-who.conf"],
     );
     if let Err(ref m) = config {
         println!("Error was: {:?}", m);

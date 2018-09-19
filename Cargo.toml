@@ -13,7 +13,7 @@ exclude = ["/**/*~", "/**/.dir-locals.el"]
 members = ["noc"]
 
 [dependencies]
-getopts = "0.2"
+clap = "2.32"
 lazy_static = "1.1"
 pest = "1.0"
 pest_derive = "*"

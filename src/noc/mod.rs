@@ -115,7 +115,7 @@ fn mk_dict<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, Str
                                 })
                             })
                             .map(|keys| {
-                                dict.insert(keys.into_iter(), value);
+                                dict.insert(keys.iter().map(|s| s.as_ref()), value);
                                 dict
                             })
                     })

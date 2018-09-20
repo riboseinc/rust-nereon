@@ -53,96 +53,64 @@ pub struct Nos {
 
 impl FromValue for Command {
     fn from_value(value: &Value) -> Result<Self, String> {
-        value.get_dict(vec!["command"]).and_then(|commands| {
-            commands
-                .iter()
-                .try_fold(HashMap::new(), |mut cs, (k, v)| {
-                    Command::from_value(v).map(|c| {
-                        cs.insert(k.to_owned(), c);
-                        cs
-                    })
-                })
-                .and_then(|commands| {
-                    value.get_dict(vec!["option"]).and_then(|options| {
-                        options.iter()
-                            .try_fold(HashMap::new(), |mut os, (k, v)| {
-                                UserOption::from_value(v).map(|o| {
-                                    os.insert(k.to_owned(), o);
-                                    os
-                                })
-                            })
-                            .map(|options| Command { commands, options })
-                    })
-                })
+        value.get("command").and_then(|commands| {
+            value
+                .get("option")
+                .map(|options| Command { commands, options })
         })
     }
 }
 
 impl FromValue for UserOption {
     fn from_value(value: &Value) -> Result<Self, String> {
-        String::from_kv_optional(vec!["short"], value).and_then(|short| {
-            String::from_kv_optional(vec!["long"], value).and_then(|long| {
-                String::from_kv_optional(vec!["env"], value).and_then(|env| {
-                    String::from_kv_optional(vec!["default_arg"], value).and_then(|default_arg| {
-                        String::from_kv_optional(vec!["default"], value).and_then(|default| {
-                            String::from_kv(vec!["usage"], value).and_then(|usage| {
-                                String::from_kv(vec!["key"], value).map(|key| UserOption {
-                                    short,
-                                    long,
-                                    env,
-                                    default_arg,
-                                    default,
-                                    usage,
-                                    key,
+        value
+            .get("short")
+            .and_then(|short| {
+                value.get("long").and_then(|long| {
+                    value.get("env").and_then(|env| {
+                        value.get("default_arg").and_then(|default_arg| {
+                            value.get("default").and_then(|default| {
+                                value.get("usage").and_then(|usage| {
+                                    value.get("key").map(|key| UserOption {
+                                        short,
+                                        long,
+                                        env,
+                                        default_arg,
+                                        default,
+                                        usage,
+                                        key,
+                                    })
                                 })
                             })
                         })
                     })
                 })
             })
-        })
     }
 }
 
 impl FromValue for Nos {
     fn from_value(value: &Value) -> Result<Self, String> {
-        value.get_string(vec!["name"]).and_then(|name| {
-            value.get_string(vec!["author"]).and_then(|author| {
-                value.get_string(vec!["version"]).and_then(|version| {
-                    value.get_string(vec!["license"]).and_then(|license| {
-                        value.get_dict(vec!["command"]).and_then(|commands| {
-                            commands.iter()
-                                .try_fold(HashMap::new(), |mut cs, (k, v)| {
-                                    Command::from_value(v).map(|c| {
-                                        cs.insert(k.to_owned(), c);
-                                        cs
-                                    })
+        value
+            .get("name")
+            .and_then(|name| {
+                value.get("author").and_then(|author| {
+                    value.get("version").and_then(|version| {
+                        value.get("license").and_then(|license| {
+                            value.get("command").and_then(|commands| {
+                                value.get("option").map(|options| Nos {
+                                    name,
+                                    author,
+                                    version,
+                                    license,
+                                    commands,
+                                    options,
                                 })
-                                .and_then(|commands| {
-                                    value.get_dict(vec!["option"]).and_then(|options| {
-                                        options.iter()
-                                            .try_fold(HashMap::new(), |mut os, (k, v)| {
-                                                UserOption::from_value(v).map(|o| {
-                                                    os.insert(k.to_owned(), o);
-                                                    os
-                                                })
-                                            })
-                                            .map(|options| Nos {
-                                                name,
-                                                author,
-                                                version,
-                                                license,
-                                                commands,
-                                                options,
-                                            })
-                                    })
-                                })
+                            })
                         })
                     })
                 })
-
             })
-        })
     }
 }
 

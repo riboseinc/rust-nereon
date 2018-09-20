@@ -186,7 +186,7 @@ where
 */
     // collect options
     let mut _options = options.into_iter().collect::<HashMap<String, Opt>>();
-/*
+    /*
     // get command line options
     let matches = options
         .values()

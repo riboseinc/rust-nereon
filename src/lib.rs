@@ -110,6 +110,9 @@ extern crate pest;
 #[macro_use]
 extern crate lazy_static;
 
+#[macro_use]
+extern crate nereon_derive;
+
 use std::collections::HashMap;
 
 mod nos;
@@ -118,7 +121,7 @@ pub use nos::Opt;
 
 pub mod noc;
 
-pub use noc::Value;
+pub use noc::{Value, FromValue};
 
 /// Parse command-line options into a
 /// [`noc::Value`](https://docs.serde.rs/serde_json/value/enum.Value.html).

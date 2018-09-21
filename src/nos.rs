@@ -22,11 +22,11 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 extern crate clap;
-//extern crate noc;
 
-use noc::{FromValue, Value};
+use super::{FromValue, Value};
 use std::collections::HashMap;
 
+#[derive(FromValue)]
 pub struct Command {
     pub commands: HashMap<String, Command>,
     pub options: HashMap<String, UserOption>,
@@ -51,15 +51,15 @@ pub struct Nos {
     pub options: HashMap<String, UserOption>,
 }
 
-impl FromValue for Command {
-    fn from_value(value: &Value) -> Result<Self, String> {
-        value.get("command").and_then(|commands| {
-            value
-                .get("option")
-                .map(|options| Command { commands, options })
-        })
-    }
-}
+//impl FromValue for Command {
+//    fn from_value(value: &Value) -> Result<Self, String> {
+//        value.get("command").and_then(|commands| {
+//            value
+//                .get("option")
+//                .map(|options| Command { commands, options })
+//        })
+//    }
+//}
 
 impl FromValue for UserOption {
     fn from_value(value: &Value) -> Result<Self, String> {

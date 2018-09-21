@@ -10,10 +10,11 @@ readme = "README.md"
 exclude = ["/**/*~", "/**/.dir-locals.el"]
 
 [workspace]
-members = ["noc"]
+members = ["noc", "derive"]
 
 [dependencies]
 clap = "2.32"
 lazy_static = "1.1"
 pest = "1.0"
 pest_derive = "*"
+nereon_derive = { path = "derive" }

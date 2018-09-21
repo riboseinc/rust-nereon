@@ -1,0 +1,15 @@
+[package]
+name = "nereon_derive"
+version = "0.1.0"
+authors = ["John Hedges <john@drystone.co.uk>"]
+license = "BSD-2-Clause"
+repository = "https://github.com/riboseinc/rust-nereon"
+
+[dependencies]
+syn = "0.15"
+quote = "0.6"
+proc-macro2 = "0.4"
+#nereon = { path = ".." }
+
+[lib]
+proc-macro = true

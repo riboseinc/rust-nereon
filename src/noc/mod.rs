@@ -106,12 +106,10 @@ fn mk_dict<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, Str
                             .into_iter()
                             .try_fold(Vec::new(), |mut keys, e| {
                                 mk_value(e, state).and_then(|key| {
-                                    key.into_string()
-                                        .ok_or_else(|| "Key is not a string".to_owned())
-                                        .map(|key| {
-                                            keys.push(key);
-                                            keys
-                                        })
+                                    String::from_value(&key).map(|key| {
+                                        keys.push(key);
+                                        keys
+                                    })
                                 })
                             })
                             .map(|keys| {
@@ -198,8 +196,7 @@ fn mk_quoted(quoted: Pair<Rule>) -> Result<Value, String> {
 fn mk_template<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) {
     let mut iter = pair.into_inner();
     let name = mk_value(iter.next().unwrap(), state)
-        .unwrap()
-        .into_string()
+        .and_then(|v| String::from_value(&v))
         .unwrap();
     state.templates.push((name, iter.next().unwrap()));
 }

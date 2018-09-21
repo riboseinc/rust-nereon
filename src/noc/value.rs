@@ -22,6 +22,7 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 use std::collections::{BTreeMap, HashMap};
+use std::hash::Hash;
 use std::iter::{self, FromIterator};
 use std::str::FromStr;
 
@@ -44,15 +45,27 @@ impl From<String> for Value {
     }
 }
 
-impl From<HashMap<String, Value>> for Value {
-    fn from(m: HashMap<String, Value>) -> Self {
-        Value::Dict(m)
+impl<S, V> From<HashMap<S, V>> for Value
+where
+    Value: From<V>,
+    String: From<S>,
+    S: Eq + Hash,
+{
+    fn from(mut m: HashMap<S, V>) -> Self {
+        Value::Dict(
+            m.drain()
+                .map(|(k, v)| (String::from(k), Value::from(v)))
+                .collect(),
+        )
     }
 }
 
-impl From<Vec<Value>> for Value {
-    fn from(v: Vec<Value>) -> Self {
-        Value::List(v)
+impl<V> From<Vec<V>> for Value
+where
+    Value: From<V>,
+{
+    fn from(mut v: Vec<V>) -> Self {
+        Value::List(v.drain(..).map(Value::from).collect())
     }
 }
 
@@ -95,14 +108,11 @@ impl Value {
     {
         self.as_dict().map_or_else(
             || Err("Value is not a dict".to_owned()),
-            |dict| {
-                dict.get(key)
-                    .map_or_else(|| T::from_no_value(), T::from_value)
-            },
+            |dict| dict.get(key).map_or_else(T::from_no_value, T::from_value),
         )
     }
 
-    pub fn get_value<'a, I>(&'a self, key: &str) -> Result<&'a Value, String> {
+    pub fn get_value<'a>(&'a self, key: &str) -> Result<&'a Value, String> {
         self.as_dict()
             .ok_or_else(|| "Not a dict".to_owned())
             .and_then(|d| d.get(key).ok_or_else(|| "No such key".to_owned()))
@@ -119,13 +129,6 @@ impl Value {
         match self {
             Value::String(_) => true,
             _ => false,
-        }
-    }
-
-    pub fn into_string(self) -> Option<String> {
-        match self {
-            Value::String(s) => Some(s),
-            _ => None,
         }
     }
 
@@ -291,16 +294,38 @@ where
     }
 }
 
+impl<T> FromValue for Vec<T>
+where
+    T: FromValue,
+{
+    fn from_value(value: &Value) -> Result<Self, String> {
+        value
+            .as_list()
+            .ok_or_else(|| "Couldn't convert".to_owned())
+            .and_then(|d| {
+                d.iter().try_fold(Vec::new(), |mut m, v| {
+                    T::from_value(v).map(|v| {
+                        m.push(v);
+                        m
+                    })
+                })
+            })
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::Value;
+    use super::{FromValue, Value};
     use std::collections::HashMap;
     use std::str::FromStr;
 
     #[test]
     fn test_value_from() {
-        assert_eq!(Value::from(HashMap::new()), Value::Dict(HashMap::new()));
-        assert_eq!(Value::from(Vec::new()), Value::List(Vec::new()));
+        assert_eq!(
+            Value::from(HashMap::<String, Value>::new()),
+            Value::Dict(HashMap::new())
+        );
+        assert_eq!(Value::from(Vec::<&str>::new()), Value::List(Vec::new()));
         assert_eq!(Value::from("hello"), Value::String("hello".to_owned()));
         assert_eq!(
             Value::from("hello".to_owned()),
@@ -310,7 +335,7 @@ mod tests {
 
     #[test]
     fn test_value_insert() {
-        let mut v = Value::from(HashMap::new());
+        let mut v = Value::from(HashMap::<String, Value>::new());
         v.insert(vec!["a"], "a");
         assert_eq!(v.as_noc_string(), r#""a" "a""#);
         v.insert(vec!["b"], "b");
@@ -333,6 +358,75 @@ mod tests {
         assert_eq!(
             value.get::<HashMap<String, String>>("e"),
             Ok(HashMap::new())
+        );
+    }
+
+    #[test]
+    fn test_value_get_value() {
+        let value = Value::from_str(r#"a a, b b, c c, e {}, f []"#).unwrap();
+        assert_eq!(value.get_value("a"), Ok(&Value::String("a".to_owned())));
+        assert_eq!(value.get_value("b"), Ok(&Value::String("b".to_owned())));
+        assert_eq!(value.get_value("c"), Ok(&Value::String("c".to_owned())));
+        assert!(value.get_value("d").is_err());
+        assert_eq!(value.get_value("f"), Ok(&Value::List(Vec::new())));
+        assert_eq!(value.get_value("e"), Ok(&Value::Dict(HashMap::new())));
+    }
+
+    #[test]
+    fn test_value_is_as_into() {
+        let v = Value::from("a");
+        assert_eq!(v.as_str(), Some("a"));
+        assert_eq!(v.as_dict(), None);
+        assert_eq!(v.is_string(), true);
+        assert_eq!(v.is_dict(), false);
+        let v = Value::from(vec![""]);
+        assert_eq!(v.as_str(), None);
+        assert_eq!(v.as_list(), Some(&vec![Value::from("")]));
+        assert_eq!(v.is_string(), false);
+        assert_eq!(v.is_list(), true);
+        let v = Value::from(HashMap::<String, Value>::new());
+        assert_eq!(v.as_list(), None);
+        assert_eq!(v.as_dict(), Some(&HashMap::new()));
+        assert_eq!(v.is_list(), false);
+        assert_eq!(v.is_dict(), true);
+    }
+
+    #[test]
+    fn test_value_to_noc_string() {
+        let v = Value::from_str(r#"a a, b b, c c, e {a a, b b}, f [a,b,c,d]"#).unwrap();
+        let noc = v.as_noc_string();
+        assert_eq!(v, Value::from_str(&noc).unwrap());
+        assert_eq!(
+            v.as_noc_string_pretty(),
+            r#""a" "a"
+"b" "b"
+"c" "c"
+"e" {
+	"a" "a"
+	"b" "b"
+}
+"f" [
+	"a"
+	"b"
+	"c"
+	"d"
+]"#
+        );
+    }
+
+    #[test]
+    fn test_from_value() {
+        assert_eq!(
+            String::from_value(&Value::from("hello")),
+            Ok("hello".to_owned())
+        );
+        assert_eq!(
+            Vec::from_value(&Value::from(vec!["a", "b"])),
+            Ok(vec!["a".to_owned(), "b".to_owned()])
+        );
+        assert_eq!(
+            HashMap::from_value(&Value::from(HashMap::<&str, &str>::new())),
+            Ok(HashMap::<String, String>::new())
         );
     }
 }

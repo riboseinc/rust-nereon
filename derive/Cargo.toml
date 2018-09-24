@@ -9,7 +9,6 @@ repository = "https://github.com/riboseinc/rust-nereon"
 syn = "0.15"
 quote = "0.6"
 proc-macro2 = "0.4"
-#nereon = { path = ".." }
 
 [lib]
 proc-macro = true

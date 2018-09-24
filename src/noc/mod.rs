@@ -35,16 +35,6 @@ mod value;
 
 pub use self::value::{FromValue, Value};
 
-pub trait Noc<OK = Self> {
-    fn parse(input: &str) -> Result<OK, String>;
-}
-
-impl Noc for Value {
-    fn parse(input: &str) -> Result<Value, String> {
-        input.parse()
-    }
-}
-
 #[derive(Clone, Debug)]
 struct State<'a> {
     templates: Vec<(String, Pair<'a, Rule>)>,

@@ -10,7 +10,7 @@ readme = "README.md"
 exclude = ["/**/*~", "/**/.dir-locals.el"]
 
 [workspace]
-members = ["noc", "derive"]
+members = ["noc", "derive", "derive-test"]
 
 [dependencies]
 clap = "2.32"

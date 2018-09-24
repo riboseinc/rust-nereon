@@ -28,10 +28,11 @@ use std::collections::HashMap;
 
 #[derive(FromValue)]
 pub struct Command {
-    pub commands: HashMap<String, Command>,
-    pub options: HashMap<String, UserOption>,
+    pub command: HashMap<String, Command>,
+    pub option: HashMap<String, UserOption>,
 }
 
+#[derive(FromValue)]
 pub struct UserOption {
     pub short: Option<String>,
     pub long: Option<String>,
@@ -42,76 +43,14 @@ pub struct UserOption {
     pub key: String,
 }
 
+#[derive(FromValue)]
 pub struct Nos {
     pub name: String,
     pub author: String,
     pub version: String,
     pub license: String,
-    pub commands: HashMap<String, Command>,
-    pub options: HashMap<String, UserOption>,
-}
-
-//impl FromValue for Command {
-//    fn from_value(value: &Value) -> Result<Self, String> {
-//        value.get("command").and_then(|commands| {
-//            value
-//                .get("option")
-//                .map(|options| Command { commands, options })
-//        })
-//    }
-//}
-
-impl FromValue for UserOption {
-    fn from_value(value: &Value) -> Result<Self, String> {
-        value
-            .get("short")
-            .and_then(|short| {
-                value.get("long").and_then(|long| {
-                    value.get("env").and_then(|env| {
-                        value.get("default_arg").and_then(|default_arg| {
-                            value.get("default").and_then(|default| {
-                                value.get("usage").and_then(|usage| {
-                                    value.get("key").map(|key| UserOption {
-                                        short,
-                                        long,
-                                        env,
-                                        default_arg,
-                                        default,
-                                        usage,
-                                        key,
-                                    })
-                                })
-                            })
-                        })
-                    })
-                })
-            })
-    }
-}
-
-impl FromValue for Nos {
-    fn from_value(value: &Value) -> Result<Self, String> {
-        value
-            .get("name")
-            .and_then(|name| {
-                value.get("author").and_then(|author| {
-                    value.get("version").and_then(|version| {
-                        value.get("license").and_then(|license| {
-                            value.get("command").and_then(|commands| {
-                                value.get("option").map(|options| Nos {
-                                    name,
-                                    author,
-                                    version,
-                                    license,
-                                    commands,
-                                    options,
-                                })
-                            })
-                        })
-                    })
-                })
-            })
-    }
+    pub command: HashMap<String, Command>,
+    pub option: HashMap<String, UserOption>,
 }
 
 #[derive(Clone, Debug, Default)]

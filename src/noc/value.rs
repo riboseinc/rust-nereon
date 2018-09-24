@@ -108,14 +108,17 @@ impl Value {
     {
         self.as_dict().map_or_else(
             || Err("Value is not a dict".to_owned()),
-            |dict| dict.get(key).map_or_else(T::from_no_value, T::from_value),
+            |dict| {
+                dict.get(key)
+                    .map_or_else(|| T::from_no_value(key), T::from_value)
+            },
         )
     }
 
     pub fn get_value<'a>(&'a self, key: &str) -> Result<&'a Value, String> {
         self.as_dict()
             .ok_or_else(|| "Not a dict".to_owned())
-            .and_then(|d| d.get(key).ok_or_else(|| "No such key".to_owned()))
+            .and_then(|d| d.get(key).ok_or_else(|| format!("No such key ({:?})", key)))
     }
 
     pub fn as_str(&self) -> Option<&str> {
@@ -249,10 +252,38 @@ impl FromStr for Value {
 pub trait FromValue<OK = Self> {
     fn from_value(value: &Value) -> Result<OK, String>;
     // this is a kludge so Value::get::<Option<T>> can work
-    fn from_no_value() -> Result<OK, String> {
-        Err("No such key".to_owned())
+    fn from_no_value(key: &str) -> Result<OK, String> {
+        Err(format!("No such key ({:?})", key))
     }
 }
+
+macro_rules! from_value_for {
+    ($type:ident) => {
+        impl FromValue for $type {
+            fn from_value(value: &Value) -> Result<Self, String> {
+                value.as_str().map_or_else(
+                    || Err("Value is not a String".to_owned()),
+                    |s| {
+                        s.parse().map_err(|e| {
+                            format!("Failed to parse: {} (\"{}\" -> {})", e, s, stringify!($type))
+                        })
+                    },
+                )
+            }
+        }
+    };
+}
+
+from_value_for!(u8);
+from_value_for!(u16);
+from_value_for!(u32);
+from_value_for!(u64);
+from_value_for!(i8);
+from_value_for!(i16);
+from_value_for!(i32);
+from_value_for!(i64);
+from_value_for!(f32);
+from_value_for!(f64);
 
 impl FromValue for String {
     fn from_value(value: &Value) -> Result<Self, String> {
@@ -270,7 +301,7 @@ where
     fn from_value(value: &Value) -> Result<Self, String> {
         T::from_value(value).map(Some).or_else(|_| Ok(None))
     }
-    fn from_no_value() -> Result<Self, String> {
+    fn from_no_value(_key: &str) -> Result<Self, String> {
         Ok(None)
     }
 }

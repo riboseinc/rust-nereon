@@ -114,14 +114,15 @@ extern crate lazy_static;
 extern crate nereon_derive;
 
 use std::collections::HashMap;
+use std::ffi::OsString;
 
 mod nos;
 
-pub use nos::Opt;
+pub use nos::{Nos, UserOption};
 
-pub mod noc;
+mod noc;
 
-pub use noc::{Value, FromValue};
+pub use noc::{FromValue, Value};
 
 /// Parse command-line options into a
 /// [`noc::Value`](https://docs.serde.rs/serde_json/value/enum.Value.html).
@@ -149,10 +150,10 @@ pub use noc::{Value, FromValue};
 /// assert_eq!(nereon_init(options, args), Ok(expected));
 /// ```
 
-pub fn nereon_init<'a, T, U>(options: T, _args: &U) -> Result<Value, String>
+pub fn nereon_init<'a, U, I>(nos: &Nos, args: U) -> Result<Value, String>
 where
-    T: IntoIterator<Item = (String, Opt)>,
-    U: IntoIterator<Item = &'a str>,
+    U: IntoIterator<Item = I>,
+    I: Into<OsString> + Clone,
 {
     /*
     fn get_arg<'a>(
@@ -187,16 +188,35 @@ where
             )
     }
 */
-    // collect options
-    let mut _options = options.into_iter().collect::<HashMap<String, Opt>>();
-    /*
     // get command line options
-    let matches = options
-        .values()
-        .fold(getopts::Options::new(), |opts, o| o.to_getopts(opts))
-        .parse(args)
-        .map_err(|e| format!("{:?}", e))?;
+    let mut clap_app = clap::App::new(nos.name.to_owned())
+        .version(nos.version.as_str())
+        .about(nos.license.as_str());
+    for a in nos.authors.iter() {
+        clap_app = clap_app.author(a.as_str());
+    }
+    for (n, o) in nos.option.iter() {
+        let mut arg = clap::Arg::with_name(n.as_str());
+        if let Some(ref s) = o.short {
+            arg = arg.short(s);
+        }
+        if let Some(ref l) = o.long {
+            arg = arg.long(l);
+        }
+        if o.default_arg.is_none() {
+            arg = arg.takes_value(true);
+        }
+        if let Some(ref e) = o.env {
+            arg = arg.env(e);
+        }
+        if o.default.is_none() && o.env.is_none() {
+            arg = arg.required(true);
+        }
+        clap_app = clap_app.arg(arg);
+    }
 
+    let _matches = clap_app.get_matches_from(args);
+    /*
     // read the config file if there is one
     let mut config = if options
         .get("config")

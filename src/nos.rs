@@ -46,32 +46,14 @@ pub struct UserOption {
 #[derive(FromValue)]
 pub struct Nos {
     pub name: String,
-    pub author: String,
+    pub authors: Vec<String>,
     pub version: String,
     pub license: String,
     pub command: HashMap<String, Command>,
     pub option: HashMap<String, UserOption>,
 }
 
-#[derive(Clone, Debug, Default)]
-pub struct Opt {
-    /// Dot separated path of destination node for this option. eg. `"root.leaf"`.
-    pub key: Vec<String>,
-    /// Short option as single character string `"s"` matches `-s`.
-    pub short: Option<String>,
-    /// Long option `"long"` matches `--long`.
-    pub long: Option<String>,
-    /// Environment variable to use if option not parsed from command line.
-    pub env: Option<String>,
-    /// Value to use if option is present without an arg
-    pub default_arg: Option<String>,
-    /// Value to use if not parsed from command line or environment variable.
-    pub default: Option<String>,
-    /// Description of option used to generate the usage message.
-    pub usage: String,
-}
-
-impl Opt {
+impl UserOption {
     /// Creates a new `Opt` instance for use with [nereon_init](fn.nereon_init.html)
     ///
     /// # Arguments
@@ -90,8 +72,8 @@ impl Opt {
         default_arg: Option<&str>,
         default: Option<&str>,
         usage: &str,
-    ) -> Opt {
-        Opt {
+    ) -> Self {
+        Self {
             key: { key.iter().map(|k| (*k).to_owned()).collect() },
             short: short.map(String::from),
             long: long.map(String::from),

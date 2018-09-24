@@ -22,56 +22,67 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 extern crate nereon;
+extern crate toml;
 
-use nereon::nereon_init;
-use nereon::Opt;
+#[macro_use]
+extern crate lazy_static;
+
+use nereon::{nereon_init, FromValue, Nos};
 use std::env;
-use std::collections::HashMap;
+
+static CARGO: &str = include_str!("../Cargo.toml");
+
+lazy_static! {
+    static ref NOS: String = {
+        let cargo = CARGO.parse::<toml::Value>().unwrap();
+        let package = cargo.get("package").unwrap();
+        format!(
+            r#"
+name "test-who"
+authors {}
+version {}
+license {}
+option config {{
+    short c
+    long config
+    usage "Config file"
+    key ""
+}}
+option who {{
+    short w
+    long who
+    env TEST_WHO
+    default world
+    usage "Entity to greet"
+    key who
+}}
+"#,
+            package.get("authors").unwrap(),
+            package.get("version").unwrap(),
+            package.get("license").unwrap(),
+        )
+    };
+}
 
 #[test]
 fn test_nos_option() {
-    let mut options = HashMap::new();
-    options.insert(
-        "config".to_owned(),
-        Opt::new(
-            &[],
-            Some("c"),
-            Some("config"),
-            None,
-            None,
-            None,
-            "Config file",
-        ),
-    );
-    options.insert(
-        "who".to_owned(),
-        Opt::new(
-            &["who"],
-            Some("w"),
-            Some("who"),
-            Some("TEST_WHO"),
-            None,
-            Some("World"),
-            "Entity to greet.",
-        ),
-    );
-
+    println!("{:?}", *NOS);
     let config = nereon_init(
-        options.clone(),
+        &Nos::from_value(&NOS.parse().unwrap()).unwrap(),
         &vec!["-p"],
     );
     assert!(config.is_err());
-    let config = nereon_init(options.clone(), &vec!["-w"]);
+
+    let config = nereon_init(
+        &Nos::from_value(&NOS.parse().unwrap()).unwrap(),
+        &vec!["-w"],
+    );
     assert!(config.is_err());
 
     env::set_var("TEST_WHO", "guess who?");
     let config = nereon_init(
-        options.clone(),
+        &Nos::from_value(&NOS.parse().unwrap()).unwrap(),
         &vec!["-w", "Arg", "--config", "tests/hello-who.conf"],
     );
-    if let Err(ref m) = config {
-        println!("Error was: {:?}", m);
-    }
     assert!(config.is_ok());
-    println!("{:?}", config);
 }

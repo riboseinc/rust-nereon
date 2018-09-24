@@ -251,7 +251,8 @@ impl FromStr for Value {
 
 pub trait FromValue<OK = Self> {
     fn from_value(value: &Value) -> Result<OK, String>;
-    // this is a kludge so Value::get::<Option<T>> can work
+    // this is a kludge so empty Values can be converted
+    // into None, HashMap<String, T>, Vec<T>
     fn from_no_value(key: &str) -> Result<OK, String> {
         Err(format!("No such key ({:?})", key))
     }
@@ -323,6 +324,9 @@ where
                 })
             })
     }
+    fn from_no_value(_key: &str) -> Result<Self, String> {
+        Ok(HashMap::default())
+    }
 }
 
 impl<T> FromValue for Vec<T>
@@ -341,6 +345,9 @@ where
                     })
                 })
             })
+    }
+    fn from_no_value(_key: &str) -> Result<Self, String> {
+        Ok(Vec::new())
     }
 }
 
@@ -379,16 +386,29 @@ mod tests {
 
     #[test]
     fn test_value_get() {
-        let value = Value::from_str(r#"a a, b b, c c, e {}, f []"#).unwrap();
+        let value = Value::from_str(r#"a a, b 1, c c, e {}, f []"#).unwrap();
         assert_eq!(value.get("a"), Ok("a".to_owned()));
         assert_eq!(value.get("a"), Ok(Some("a".to_owned())));
-        assert_eq!(value.get("b"), Ok("b".to_owned()));
+        assert_eq!(value.get("b"), Ok(1u8));
+        assert_eq!(value.get("b"), Ok(1u16));
+        assert_eq!(value.get("b"), Ok(1u32));
+        assert_eq!(value.get("b"), Ok(1u64));
+        assert_eq!(value.get("b"), Ok(1i8));
+        assert_eq!(value.get("b"), Ok(1i16));
+        assert_eq!(value.get("b"), Ok(1i32));
+        assert_eq!(value.get("b"), Ok(1i64));
+        assert_eq!(value.get("b"), Ok(1f32));
+        assert_eq!(value.get("b"), Ok(1f64));
         assert_eq!(value.get("c"), Ok("c".to_owned()));
         assert!(value.get::<String>("d").is_err());
         assert_eq!(value.get::<Option<String>>("d"), Ok(None));
         assert_eq!(
             value.get::<HashMap<String, String>>("e"),
             Ok(HashMap::new())
+        );
+        assert_eq!(
+            value.get::<Vec<String>>("f"),
+            Ok(Vec::new())
         );
     }
 

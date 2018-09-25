@@ -29,7 +29,7 @@ extern crate nereon;
 #[cfg(test)]
 mod tests {
     extern crate nereon;
-    use self::nereon::{FromValue, Value};
+    use self::nereon::{FromValue, Value, parse_noc};
 
     #[test]
     fn test_string_struct() {
@@ -38,7 +38,7 @@ mod tests {
             a: String,
         }
         assert_eq!(
-            A::from_value(&"a apple".parse().unwrap()),
+            A::from_value(&parse_noc("a apple").unwrap()),
             Ok(A {
                 a: "apple".to_owned(),
             })
@@ -67,7 +67,7 @@ mod tests {
             ),
         ];
         for (a, b) in tests {
-            assert_eq!(&A::from_value(&a.parse().unwrap()), b);
+            assert_eq!(&A::from_value(&parse_noc(a).unwrap()), b);
         }
         let tests = &[
             "a 18446744073709551617, b 0, c 0, d 0",
@@ -84,7 +84,7 @@ mod tests {
             "a 0, b 0, c 0, d 0.0",
         ];
         for a in tests {
-            assert!(&A::from_value(&a.parse().unwrap()).is_err());
+            assert!(&A::from_value(&parse_noc(a).unwrap()).is_err());
         }
     }
 
@@ -119,7 +119,7 @@ mod tests {
             ),
         ];
         for (a, b) in tests {
-            assert_eq!(&A::from_value(&a.parse().unwrap()), b);
+            assert_eq!(&A::from_value(&parse_noc(a).unwrap()), b);
         }
         let tests = &[
             "a 9223372036854775808, b 0, c 0, d 0",
@@ -136,7 +136,7 @@ mod tests {
             "a 0, b 0, c 0, d 0.0",
         ];
         for a in tests {
-            assert!(&A::from_value(&a.parse().unwrap()).is_err());
+            assert!(&A::from_value(&parse_noc(a).unwrap()).is_err());
         }
     }
 
@@ -161,11 +161,11 @@ mod tests {
             ),
         ];
         for (a, b) in tests {
-            assert_eq!(&A::from_value(&a.parse().unwrap()), b);
+            assert_eq!(&A::from_value(&parse_noc(a).unwrap()), b);
         }
         let tests = &["a not, b 0", "a 0, b not"];
         for a in tests {
-            assert!(&A::from_value(&a.parse().unwrap()).is_err());
+            assert!(&A::from_value(&parse_noc(a).unwrap()).is_err());
         }
     }
 
@@ -176,11 +176,11 @@ mod tests {
             a: Option<u8>,
         }
         assert_eq!(
-            A::from_value(&"b apple".parse().unwrap()),
+            A::from_value(&parse_noc("b apple").unwrap()),
             Ok(A { a: None })
         );
         assert_eq!(
-            A::from_value(&"a 200".parse().unwrap()),
+            A::from_value(&parse_noc("a 200").unwrap()),
             Ok(A { a: Some(200) })
         );
     }
@@ -197,7 +197,7 @@ mod tests {
             b: String,
         }
         assert_eq!(
-            B::from_value(&"a { a apple }, b banana".parse().unwrap()),
+            B::from_value(&parse_noc("a { a apple }, b banana").unwrap()),
             Ok(B {
                 a: A {
                     a: "apple".to_owned()

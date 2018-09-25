@@ -25,7 +25,6 @@ use std::collections::{BTreeMap, HashMap};
 use std::ffi::{OsStr, OsString};
 use std::hash::Hash;
 use std::iter::{self, FromIterator};
-use std::str::FromStr;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Value {
@@ -273,14 +272,6 @@ impl Value {
     }
 }
 
-impl FromStr for Value {
-    type Err = String;
-
-    fn from_str(input: &str) -> Result<Self, String> {
-        super::parse(input)
-    }
-}
-
 pub trait FromValue<OK = Self> {
     fn from_value(value: &Value) -> Result<OK, String>;
     // this is a kludge so missing Values can be converted
@@ -385,8 +376,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::{FromValue, Value};
+    use super::super::parse_noc;
     use std::collections::HashMap;
-    use std::str::FromStr;
 
     #[test]
     fn test_value_from() {
@@ -417,7 +408,7 @@ mod tests {
 
     #[test]
     fn test_value_get() {
-        let value = Value::from_str(r#"a a, b 1, c c, e {}, f []"#).unwrap();
+        let value = parse_noc(r#"a a, b 1, c c, e {}, f []"#).unwrap();
         assert_eq!(value.get("a"), Ok("a".to_owned()));
         assert_eq!(value.get("a"), Ok(Some("a".to_owned())));
         assert_eq!(value.get("b"), Ok(1u8));
@@ -442,7 +433,7 @@ mod tests {
 
     #[test]
     fn test_value_get_value() {
-        let value = Value::from_str(r#"a a, b b, c c, e {}, f []"#).unwrap();
+        let value = parse_noc(r#"a a, b b, c c, e {}, f []"#).unwrap();
         assert_eq!(value.get_value("a"), Some(&Value::String("a".to_owned())));
         assert_eq!(value.get_value("b"), Some(&Value::String("b".to_owned())));
         assert_eq!(value.get_value("c"), Some(&Value::String("c".to_owned())));
@@ -472,9 +463,9 @@ mod tests {
 
     #[test]
     fn test_value_to_noc_string() {
-        let v = Value::from_str(r#"a a, b b, c c, e {a a, b b}, f [a,b,c,d]"#).unwrap();
+        let v = parse_noc(r#"a a, b b, c c, e {a a, b b}, f [a,b,c,d]"#).unwrap();
         let noc = v.as_noc_string();
-        assert_eq!(v, Value::from_str(&noc).unwrap());
+        assert_eq!(v, parse_noc(&noc).unwrap());
         assert_eq!(
             v.as_noc_string_pretty(),
             r#""a" "a"

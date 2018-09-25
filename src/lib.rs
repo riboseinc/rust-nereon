@@ -125,7 +125,7 @@ pub use nos::{Nos, UserOption};
 
 mod noc;
 
-pub use noc::{FromValue, Value};
+pub use noc::{parse_noc, FromValue, Value};
 
 /// Parse command-line options into a
 /// [`noc::Value`](https://docs.serde.rs/serde_json/value/enum.Value.html).
@@ -211,7 +211,7 @@ where
         File::open(&n)
             .and_then(|ref mut f| f.read_to_string(&mut buffer))
             .map_err(|e| format!("{:?}", e))
-            .and_then(|_| buffer.parse::<Value>())
+            .and_then(|_| parse_noc(&buffer))
             .and_then(|v| Ok(config.insert(key_to_strs(&options.get("config").unwrap()), v)))?
     };
 

@@ -68,21 +68,23 @@ option who {{
 
 #[test]
 fn test_nos_option() {
+    use nereon::parse_noc;
+
     let config = configure(
-        &Nos::from_value(&NOS.parse().unwrap()).unwrap(),
+        &Nos::from_value(&parse_noc(&NOS).unwrap()).unwrap(),
         &vec!["program", "--unknown", "-c", "tests/hello-who.conf"],
     );
     assert!(config.is_err());
 
     let config = configure(
-        &Nos::from_value(&NOS.parse().unwrap()).unwrap(),
+        &Nos::from_value(&parse_noc(&NOS).unwrap()).unwrap(),
         &vec!["program", "-w"],
     );
     assert!(config.is_err());
 
     env::set_var("TEST_WHO", "guess who?");
     let config = configure(
-        &Nos::from_value(&NOS.parse().unwrap()).unwrap(),
+        &Nos::from_value(&parse_noc(&NOS).unwrap()).unwrap(),
         &vec!["program", "-w", "Arg", "--config", "tests/hello-who.conf"],
     );
     assert!(config.is_ok());

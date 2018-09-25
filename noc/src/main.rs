@@ -33,7 +33,7 @@ use std::io::{self, Read};
 use std::io::Write;
 use std::process::exit;
 use tiny_http::{Method, Request, Response, Server, StatusCode};
-use nereon::Value;
+use nereon::parse_noc;
 
 fn usage(opts: &Options) {
     let progname = env::current_exe()
@@ -78,7 +78,7 @@ fn parse() -> io::Result<()> {
     io::stdout().write_all( {
         let mut noc = String::new();
         stdin.lock().read_to_string(&mut noc)?;
-        noc.parse::<Value>()
+        parse_noc(&noc)
             .unwrap()
             .as_noc_string()
             .as_ref()
@@ -110,7 +110,7 @@ fn handle_request(mut req: Request) -> io::Result<()> {
             "/parse" => {
                 let mut body = String::new();
                 if req.as_reader().read_to_string(&mut body).is_ok() {
-                    req.respond(Response::from_string(match body.parse::<Value>() {
+                    req.respond(Response::from_string(match parse_noc(&body) {
                         Ok(s) => s.as_noc_string_pretty(),
                         Err(e) => format!("{:?}", e),
                     }))

@@ -27,7 +27,7 @@ extern crate toml;
 #[macro_use]
 extern crate lazy_static;
 
-use nereon::{nereon_init, FromValue, Nos};
+use nereon::{configure, FromValue, Nos};
 use std::env;
 
 static CARGO: &str = include_str!("../Cargo.toml");
@@ -45,16 +45,18 @@ license {}
 option config {{
     short c
     long config
+    hint FILE
     usage "Config file"
-    key ""
+    key []
 }}
 option who {{
     short w
     long who
     env TEST_WHO
     default world
+    hint NAME
     usage "Entity to greet"
-    key who
+    key [who]
 }}
 "#,
             package.get("authors").unwrap(),
@@ -66,23 +68,22 @@ option who {{
 
 #[test]
 fn test_nos_option() {
-    println!("{:?}", *NOS);
-    let config = nereon_init(
+    let config = configure(
         &Nos::from_value(&NOS.parse().unwrap()).unwrap(),
-        &vec!["-p"],
+        &vec!["program", "--unknown", "-c", "tests/hello-who.conf"],
     );
     assert!(config.is_err());
 
-    let config = nereon_init(
+    let config = configure(
         &Nos::from_value(&NOS.parse().unwrap()).unwrap(),
-        &vec!["-w"],
+        &vec!["program", "-w"],
     );
     assert!(config.is_err());
 
     env::set_var("TEST_WHO", "guess who?");
-    let config = nereon_init(
+    let config = configure(
         &Nos::from_value(&NOS.parse().unwrap()).unwrap(),
-        &vec!["-w", "Arg", "--config", "tests/hello-who.conf"],
+        &vec!["program", "-w", "Arg", "--config", "tests/hello-who.conf"],
     );
     assert!(config.is_ok());
 }

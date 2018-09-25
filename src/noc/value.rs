@@ -22,6 +22,7 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 use std::collections::{BTreeMap, HashMap};
+use std::ffi::{OsStr, OsString};
 use std::hash::Hash;
 use std::iter::{self, FromIterator};
 use std::str::FromStr;
@@ -42,6 +43,18 @@ impl<'a> From<&'a str> for Value {
 impl From<String> for Value {
     fn from(s: String) -> Self {
         Value::String(s)
+    }
+}
+
+impl<'a> From<&'a OsStr> for Value {
+    fn from(s: &OsStr) -> Self {
+        Value::String(String::from(s.to_string_lossy()))
+    }
+}
+
+impl From<OsString> for Value {
+    fn from(s: OsString) -> Self {
+        Value::from(s.as_os_str())
     }
 }
 
@@ -77,48 +90,67 @@ impl Value {
     {
         let value = value.into();
         let mut keys = keys.into_iter().peekable();
-        let key = keys.next().unwrap();
-        let map = self.as_dict_mut().unwrap();
-        let old_value = map.remove(key).filter(|v| v.is_dict());
 
-        map.insert(
-            key.to_owned(),
-            if keys.peek().is_none() {
-                // single key so insert in current node
-                match (value, old_value) {
-                    (Value::Dict(mut new), Some(Value::Dict(mut existing))) => {
-                        for (k, v) in new.drain() {
-                            existing.insert(k, v);
+        if let Some(key) = keys.next() {
+            let map = self.as_dict_mut().unwrap();
+            let old_value = map.remove(key).filter(|v| v.is_dict());
+
+            map.insert(
+                key.to_owned(),
+                if keys.peek().is_none() {
+                    // single key so insert in current node
+                    match (value, old_value) {
+                        (Value::Dict(mut new), Some(Value::Dict(mut existing))) => {
+                            for (k, v) in new.drain() {
+                                existing.insert(k, v);
+                            }
+                            Value::Dict(existing)
                         }
-                        Value::Dict(existing)
+                        (v, _) => v,
                     }
-                    (v, _) => v,
-                }
-            } else {
-                let mut node = old_value.unwrap_or_else(|| Value::Dict(HashMap::new()));
-                node.insert(keys.collect::<Vec<_>>(), value);
-                node
-            },
-        );
+                } else {
+                    let mut node = old_value.unwrap_or_else(|| Value::Dict(HashMap::new()));
+                    node.insert(keys.collect::<Vec<_>>(), value);
+                    node
+                },
+            );
+        } else {
+            *self = value;
+        }
     }
 
     pub fn get<T>(&self, key: &str) -> Result<T, String>
     where
         T: FromValue,
     {
-        self.as_dict().map_or_else(
-            || Err("Value is not a dict".to_owned()),
-            |dict| {
-                dict.get(key)
-                    .map_or_else(|| T::from_no_value(key), T::from_value)
-            },
-        )
+        self.get_value(key)
+            .map_or_else(T::from_no_value, T::from_value)
     }
 
-    pub fn get_value<'a>(&'a self, key: &str) -> Result<&'a Value, String> {
-        self.as_dict()
-            .ok_or_else(|| "Not a dict".to_owned())
-            .and_then(|d| d.get(key).ok_or_else(|| format!("No such key ({:?})", key)))
+    pub fn get_value<'a>(&'a self, key: &str) -> Option<&'a Value> {
+        self.as_dict().and_then(|d| d.get(key))
+    }
+
+    pub fn lookup<'a, I, T>(&'a self, keys: I) -> Result<T, String>
+    where
+        I: IntoIterator<Item = &'a str>,
+        T: FromValue,
+    {
+        self.lookup_value(keys)
+            .map_or_else(T::from_no_value, T::from_value)
+    }
+
+    pub fn lookup_value<'a, I>(&'a self, keys: I) -> Option<&'a Value>
+    where
+        I: IntoIterator<Item = &'a str>,
+    {
+        let keys = keys.into_iter().collect::<Vec<_>>();
+        if keys.is_empty() {
+            Some(self)
+        } else {
+            self.get_value(keys[0])
+                .and_then(|v| v.lookup_value(keys[1..].to_vec()))
+        }
     }
 
     pub fn as_str(&self) -> Option<&str> {
@@ -251,10 +283,10 @@ impl FromStr for Value {
 
 pub trait FromValue<OK = Self> {
     fn from_value(value: &Value) -> Result<OK, String>;
-    // this is a kludge so empty Values can be converted
-    // into None, HashMap<String, T>, Vec<T>
-    fn from_no_value(key: &str) -> Result<OK, String> {
-        Err(format!("No such key ({:?})", key))
+    // this is a kludge so missing Values can be converted
+    // into None
+    fn from_no_value() -> Result<OK, String> {
+        Err("No such key".to_owned())
     }
 }
 
@@ -266,7 +298,12 @@ macro_rules! from_value_for {
                     || Err("Value is not a String".to_owned()),
                     |s| {
                         s.parse().map_err(|e| {
-                            format!("Failed to parse: {} (\"{}\" -> {})", e, s, stringify!($type))
+                            format!(
+                                "Failed to parse: {} (\"{}\" -> {})",
+                                e,
+                                s,
+                                stringify!($type)
+                            )
                         })
                     },
                 )
@@ -302,7 +339,7 @@ where
     fn from_value(value: &Value) -> Result<Self, String> {
         T::from_value(value).map(Some).or_else(|_| Ok(None))
     }
-    fn from_no_value(_key: &str) -> Result<Self, String> {
+    fn from_no_value() -> Result<Self, String> {
         Ok(None)
     }
 }
@@ -324,9 +361,6 @@ where
                 })
             })
     }
-    fn from_no_value(_key: &str) -> Result<Self, String> {
-        Ok(HashMap::default())
-    }
 }
 
 impl<T> FromValue for Vec<T>
@@ -345,9 +379,6 @@ where
                     })
                 })
             })
-    }
-    fn from_no_value(_key: &str) -> Result<Self, String> {
-        Ok(Vec::new())
     }
 }
 
@@ -406,21 +437,18 @@ mod tests {
             value.get::<HashMap<String, String>>("e"),
             Ok(HashMap::new())
         );
-        assert_eq!(
-            value.get::<Vec<String>>("f"),
-            Ok(Vec::new())
-        );
+        assert_eq!(value.get::<Vec<String>>("f"), Ok(Vec::new()));
     }
 
     #[test]
     fn test_value_get_value() {
         let value = Value::from_str(r#"a a, b b, c c, e {}, f []"#).unwrap();
-        assert_eq!(value.get_value("a"), Ok(&Value::String("a".to_owned())));
-        assert_eq!(value.get_value("b"), Ok(&Value::String("b".to_owned())));
-        assert_eq!(value.get_value("c"), Ok(&Value::String("c".to_owned())));
-        assert!(value.get_value("d").is_err());
-        assert_eq!(value.get_value("f"), Ok(&Value::List(Vec::new())));
-        assert_eq!(value.get_value("e"), Ok(&Value::Dict(HashMap::new())));
+        assert_eq!(value.get_value("a"), Some(&Value::String("a".to_owned())));
+        assert_eq!(value.get_value("b"), Some(&Value::String("b".to_owned())));
+        assert_eq!(value.get_value("c"), Some(&Value::String("c".to_owned())));
+        assert_eq!(value.get_value("d"), None);
+        assert_eq!(value.get_value("f"), Some(&Value::List(Vec::new())));
+        assert_eq!(value.get_value("e"), Some(&Value::Dict(HashMap::new())));
     }
 
     #[test]

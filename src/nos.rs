@@ -26,31 +26,32 @@ extern crate clap;
 use super::{FromValue, Value};
 use std::collections::HashMap;
 
-#[derive(FromValue)]
+#[derive(FromValue, Debug)]
 pub struct Command {
-    pub command: HashMap<String, Command>,
-    pub option: HashMap<String, UserOption>,
+    pub command: Option<HashMap<String, Command>>,
+    pub option: Option<HashMap<String, UserOption>>,
 }
 
-#[derive(FromValue)]
+#[derive(FromValue, Debug)]
 pub struct UserOption {
     pub short: Option<String>,
     pub long: Option<String>,
     pub env: Option<String>,
     pub default_arg: Option<String>,
     pub default: Option<String>,
+    pub hint: Option<String>,
     pub usage: String,
-    pub key: String,
+    pub key: Vec<String>,
 }
 
-#[derive(FromValue)]
+#[derive(FromValue, Debug)]
 pub struct Nos {
     pub name: String,
     pub authors: Vec<String>,
     pub version: String,
     pub license: String,
-    pub command: HashMap<String, Command>,
-    pub option: HashMap<String, UserOption>,
+    pub command: Option<HashMap<String, Command>>,
+    pub option: Option<HashMap<String, UserOption>>,
 }
 
 impl UserOption {
@@ -71,6 +72,7 @@ impl UserOption {
         env: Option<&str>,
         default_arg: Option<&str>,
         default: Option<&str>,
+        hint: Option<&str>,
         usage: &str,
     ) -> Self {
         Self {
@@ -80,6 +82,7 @@ impl UserOption {
             env: env.map(String::from),
             default_arg: default_arg.map(String::from),
             default: default.map(String::from),
+            hint: hint.map(String::from),
             usage: usage.to_owned(),
         }
     }

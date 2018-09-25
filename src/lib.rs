@@ -114,7 +114,10 @@ extern crate lazy_static;
 extern crate nereon_derive;
 
 use std::collections::HashMap;
+use std::env;
 use std::ffi::OsString;
+use std::fs::File;
+use std::io::Read;
 
 mod nos;
 
@@ -150,58 +153,36 @@ pub use noc::{FromValue, Value};
 /// assert_eq!(nereon_init(options, args), Ok(expected));
 /// ```
 
-pub fn nereon_init<'a, U, I>(nos: &Nos, args: U) -> Result<Value, String>
+pub fn configure<'a, U, I>(nos: &Nos, args: U) -> Result<Value, String>
 where
     U: IntoIterator<Item = I>,
     I: Into<OsString> + Clone,
 {
-    /*
-    fn get_arg<'a>(
-        opt: &Opt,
-        matches: &'a Matches,
-        config: Option<&Value>,
-    ) -> Result<String, String> {
-        opt.long.as_ref().and_then(|n| matches.opt_str(&n))
-            .or_else(|| opt.short.as_ref().and_then(|n| matches.opt_str(&n)))
-            .or_else(|| {
-                opt.env
-                    .as_ref()
-                    .and_then(|n| env::var(&n).ok())
-                    .or_else(|| {
-                        config.and_then(|c| {
-                            c.get(opt.key.clone())
-                                .filter(|v| v.is_string())
-                                .and_then(|v| v.as_string().map(String::from))
-                        })
-                    })
-                    .or_else(|| opt.default.as_ref().map(|v| v.to_owned()))
-            })
-            .map_or_else(
-                || {
-                    Err(opt.long.as_ref()
-                        .or(opt.short.as_ref())
-                        .map_or(format!("Required option not supplied {:?}", opt), |n| {
-                            format!("Option is required ({})", n)
-                        }))
-                },
-                |v| Ok(v),
-            )
+    if nos.option.is_none() {
+        return Ok(Value::Dict(HashMap::new()));
     }
-*/
+
+    let options = nos.option.as_ref().unwrap();
+
     // get command line options
     let mut clap_app = clap::App::new(nos.name.to_owned())
         .version(nos.version.as_str())
         .about(nos.license.as_str());
+
     for a in nos.authors.iter() {
         clap_app = clap_app.author(a.as_str());
     }
-    for (n, o) in nos.option.iter() {
-        let mut arg = clap::Arg::with_name(n.as_str());
+
+    for (n, o) in options.iter() {
+        let mut arg = clap::Arg::with_name(n.as_str()).required(true);
         if let Some(ref s) = o.short {
             arg = arg.short(s);
         }
         if let Some(ref l) = o.long {
             arg = arg.long(l);
+        }
+        if let Some(ref d) = o.default {
+            arg = arg.default_value(d);
         }
         if o.default_arg.is_none() {
             arg = arg.takes_value(true);
@@ -209,47 +190,56 @@ where
         if let Some(ref e) = o.env {
             arg = arg.env(e);
         }
-        if o.default.is_none() && o.env.is_none() {
-            arg = arg.required(true);
+        if let Some(ref h) = o.hint {
+            arg = arg.value_name(h);
         }
         clap_app = clap_app.arg(arg);
     }
 
-    let _matches = clap_app.get_matches_from(args);
-    /*
+    let matches = clap_app
+        .get_matches_from_safe(args)
+        .map_err(|e| format!("{}", e))?;
+
+    fn key_to_strs(option: &UserOption) -> Vec<&str> {
+        option.key.iter().map(|k| k.as_str()).collect()
+    }
+
     // read the config file if there is one
-    let mut config = if options
-        .get("config")
-        .filter(|o| !o.key.is_empty())
-        .is_some()
-    {
-        options
-            .remove("config")
-            .ok_or_else(|| unreachable!())
-            .and_then(|ref o| {
-                get_arg(o, &matches, None).and_then(|n| {
-                    let mut buffer = String::new();
-                    File::open(&n)
-                        .and_then(|ref mut f| f.read_to_string(&mut buffer))
-                        .map_err(|e| format!("{:?}", e))
-                        .and_then(|_| buffer.parse())
-                })
-            })
-    } else {
-        Ok(Value::Dict(HashMap::new()))
-    }?;
+    let mut config = Value::Dict(HashMap::new());
+    if let Some(n) = matches.value_of_os("config") {
+        let mut buffer = String::new();
+        File::open(&n)
+            .and_then(|ref mut f| f.read_to_string(&mut buffer))
+            .map_err(|e| format!("{:?}", e))
+            .and_then(|_| buffer.parse::<Value>())
+            .and_then(|v| Ok(config.insert(key_to_strs(&options.get("config").unwrap()), v)))?
+    };
 
     // build the config tree
-    options
-        .values()
-        .try_fold(&mut config, |mut config, option| {
-            get_arg(option, &matches, Some(&mut config)).and_then(|v| {
-                config.insert(option.key.clone(), Value::String(v.to_owned()));
-                Ok(config)
-            })
-        })?;
-*/
-    Ok(Value::Dict(HashMap::new()))
+    options.iter().fold(&mut config, |config, (name, option)| {
+        let value = if matches.occurrences_of(name) == 0 {
+            option
+                .env
+                .as_ref()
+                .and_then(|e| env::var_os(e))
+                .map(Value::from)
+                .or_else(|| {
+                    config
+                        .lookup_value(key_to_strs(&option))
+                        .map_or_else(|| option.default.clone().map(Value::from), |_| None)
+                })
+        } else {
+            matches
+                .value_of_os(name)
+                .map(Value::from)
+                .or_else(|| option.default_arg.clone().map(Value::from))
+        };
+        if let Some(v) = value {
+            config.insert(key_to_strs(&option), v);
+        }
+        config
+    });
+    Ok(config)
 }
 
 #[cfg(test)]

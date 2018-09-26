@@ -208,15 +208,18 @@ where
     let mut config = Value::Dict(HashMap::new());
     if let Some(n) = matches.value_of_os("config") {
         let mut buffer = String::new();
-        File::open(&n)
+        config = File::open(&n)
             .and_then(|ref mut f| f.read_to_string(&mut buffer))
             .map_err(|e| format!("{:?}", e))
             .and_then(|_| parse_noc(&buffer))
-            .and_then(|v| Ok(config.insert(key_to_strs(&options.get("config").unwrap()), v)))?
+            .and_then(|v| Ok({
+                let keys = key_to_strs(&options.get("config").unwrap());
+                config.insert(keys, v)
+            }))?
     };
 
     // build the config tree
-    options.iter().fold(&mut config, |config, (name, option)| {
+    config = options.iter().fold(config, |mut config, (name, option)| {
         let value = if matches.occurrences_of(name) == 0 {
             option
                 .env
@@ -235,7 +238,8 @@ where
                 .or_else(|| option.default_arg.clone().map(Value::from))
         };
         if let Some(v) = value {
-            config.insert(key_to_strs(&option), v);
+            let keys = key_to_strs(&options.get("config").unwrap());
+            config = config.insert(keys, v);
         }
         config
     });

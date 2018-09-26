@@ -82,39 +82,41 @@ where
 }
 
 impl Value {
-    pub fn insert<'a, I, V>(&mut self, keys: I, value: V)
+    pub fn insert<'a, I, V>(self, keys: I, value: V) -> Self
     where
         I: IntoIterator<Item = &'a str>,
         V: Into<Value>,
     {
         let value = value.into();
         let mut keys = keys.into_iter().peekable();
-
-        if let Some(key) = keys.next() {
-            let map = self.as_dict_mut().unwrap();
-            let old_value = map.remove(key).filter(|v| v.is_dict());
-
-            map.insert(
-                key.to_owned(),
-                if keys.peek().is_none() {
-                    // single key so insert in current node
-                    match (value, old_value) {
-                        (Value::Dict(mut new), Some(Value::Dict(mut existing))) => {
-                            for (k, v) in new.drain() {
-                                existing.insert(k, v);
-                            }
-                            Value::Dict(existing)
-                        }
-                        (v, _) => v,
-                    }
-                } else {
-                    let mut node = old_value.unwrap_or_else(|| Value::Dict(HashMap::new()));
-                    node.insert(keys.collect::<Vec<_>>(), value);
-                    node
-                },
-            );
+        if keys.peek().is_none() {
+            value
         } else {
-            *self = value;
+            let key = keys.next().unwrap();
+            if let Value::Dict(mut map) = self {
+                let old_value = map.remove(key).filter(|v| v.is_dict());
+                map.insert(
+                    key.to_owned(),
+                    if keys.peek().is_none() {
+                        // single key so insert in current node
+                        match (value, old_value) {
+                            (Value::Dict(mut new), Some(Value::Dict(mut existing))) => {
+                                for (k, v) in new.drain() {
+                                    existing.insert(k, v);
+                                }
+                                Value::Dict(existing)
+                            }
+                            (v, _) => v,
+                        }
+                    } else {
+                        let mut node = old_value.unwrap_or_else(|| Value::Dict(HashMap::new()));
+                        node.insert(keys.collect::<Vec<_>>(), value)
+                    },
+                );
+                Value::Dict(map)
+            } else {
+                unreachable!()
+            }
         }
     }
 
@@ -396,13 +398,13 @@ mod tests {
     #[test]
     fn test_value_insert() {
         let mut v = Value::from(HashMap::<String, Value>::new());
-        v.insert(vec!["a"], "a");
+        v = v.insert(vec!["a"], "a");
         assert_eq!(v.as_noc_string(), r#""a" "a""#);
-        v.insert(vec!["b"], "b");
+        v = v.insert(vec!["b"], "b");
         assert_eq!(v.as_noc_string(), r#""a" "a","b" "b""#);
-        v.insert(vec!["c", "c", "c"], "c");
+        v = v.insert(vec!["c", "c", "c"], "c");
         assert_eq!(v.as_noc_string(), r#""a" "a","b" "b","c" {"c" {"c" "c"}}"#);
-        v.insert(vec!["c"], "c");
+        v = v.insert(vec!["c"], "c");
         assert_eq!(v.as_noc_string(), r#""a" "a","b" "b","c" "c""#);
     }
 

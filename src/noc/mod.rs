@@ -86,7 +86,7 @@ fn mk_value<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, St
 
 fn mk_dict<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, String> {
     pair.into_inner()
-        .try_fold(Value::Dict(HashMap::new()), |mut dict, pair| {
+        .try_fold(Value::Dict(HashMap::new()), |dict, pair| {
             match pair.as_rule() {
                 Rule::key_value => {
                     let mut expressions: Vec<Pair<Rule>> = pair.into_inner().collect();
@@ -103,8 +103,7 @@ fn mk_dict<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, Str
                                 })
                             })
                             .map(|keys| {
-                                dict.insert(keys.iter().map(|s| s.as_ref()), value);
-                                dict
+                                dict.insert(keys.iter().map(|s| s.as_ref()), value)
                             })
                     })
                 }

@@ -26,13 +26,13 @@ extern crate clap;
 use super::{FromValue, Value};
 use std::collections::HashMap;
 
-#[derive(FromValue, Debug)]
+#[derive(FromValue, Debug, PartialEq)]
 pub struct Command {
     pub command: Option<HashMap<String, Command>>,
     pub option: Option<HashMap<String, UserOption>>,
 }
 
-#[derive(FromValue, Debug)]
+#[derive(FromValue, Debug, PartialEq)]
 pub struct UserOption {
     pub short: Option<String>,
     pub long: Option<String>,
@@ -44,7 +44,7 @@ pub struct UserOption {
     pub key: Vec<String>,
 }
 
-#[derive(FromValue, Debug)]
+#[derive(FromValue, Debug, PartialEq)]
 pub struct Nos {
     pub name: String,
     pub authors: Vec<String>,
@@ -52,59 +52,4 @@ pub struct Nos {
     pub license: String,
     pub command: Option<HashMap<String, Command>>,
     pub option: Option<HashMap<String, UserOption>>,
-}
-
-impl UserOption {
-    /// Creates a new `Opt` instance for use with [nereon_init](fn.nereon_init.html)
-    ///
-    /// # Arguments
-    /// * `key` - Dot separated path of destination node for this option. eg. `"root.leaf"`.
-    /// * `short` - Short option as single character string `"s"` matches `-s`.
-    /// * `long` - Long option `"long"` matches `--long`.
-    /// * `env` - Environment variable to use if option not parsed from command line.
-    /// * `default_arg` Value to use if option is present but has no arg.
-    /// * `default` - Value to use if not parsed from command line or environment variable.
-    /// * `usage` - Description of option used to generate the usage message.
-    pub fn new(
-        key: &[&str],
-        short: Option<&str>,
-        long: Option<&str>,
-        env: Option<&str>,
-        default_arg: Option<&str>,
-        default: Option<&str>,
-        hint: Option<&str>,
-        usage: &str,
-    ) -> Self {
-        Self {
-            key: { key.iter().map(|k| (*k).to_owned()).collect() },
-            short: short.map(String::from),
-            long: long.map(String::from),
-            env: env.map(String::from),
-            default_arg: default_arg.map(String::from),
-            default: default.map(String::from),
-            hint: hint.map(String::from),
-            usage: usage.to_owned(),
-        }
-    }
-
-    /*
-    pub fn to_getopts<'a>(&self, mut options: getopts::Options) -> getopts::Options {
-        if self.short.is_some() || self.long.is_some() {
-            let hasarg = if let Some(_) = self.default_arg {
-                getopts::HasArg::Maybe
-            } else {
-                getopts::HasArg::Yes
-            };
-
-            options.opt(
-                self.short.as_ref().map_or("", String::as_str),
-                self.long.as_ref().map_or("", String::as_str),
-                self.usage.as_str(),
-                "",
-                hasarg,
-                getopts::Occur::Optional,
-            );
-        }
-        options
-    }*/
 }

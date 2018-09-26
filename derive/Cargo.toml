@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["John Hedges <john@drystone.co.uk>"]
 license = "BSD-2-Clause"
 repository = "https://github.com/riboseinc/rust-nereon"
+exclude = ["/**/*~", "/**/.dir-locals.el"]
 
 [dependencies]
 syn = "0.15"

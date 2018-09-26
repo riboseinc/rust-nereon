@@ -58,6 +58,28 @@ lazy_static! {
     };
 }
 
+/// Configuration written in
+/// [NOC](https://github.com/riboseinc/nereon-syntax) syntax can be
+/// parsed into a [Value](enum.Value.html) using the
+/// [parse_noc](fn.parse_noc.html) function.
+///
+/// ```
+/// extern crate nereon;
+/// use nereon::{parse_noc, Value};
+/// use std::collections::HashMap;
+///
+/// let noc = r#"
+///     user admin {
+///         uid 1000 + 10
+///         name "John Doe"
+///     }"#;
+///
+/// let expected = Value::Table(HashMap::new())
+///     .insert(vec!["user", "admin", "uid"], Value::from("1010"))
+///     .insert(vec!["user", "admin", "name"], Value::from("John Doe"));
+///
+/// assert_eq!(parse_noc(noc), Ok(expected));
+/// ```
 pub fn parse_noc(input: &str) -> Result<Value, String> {
     NocParser::parse(Rule::root, input)
         .map_err(|e| format!("{:?}", e))
@@ -86,7 +108,7 @@ fn mk_value<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, St
 
 fn mk_dict<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, String> {
     pair.into_inner()
-        .try_fold(Value::Dict(HashMap::new()), |dict, pair| {
+        .try_fold(Value::Table(HashMap::new()), |dict, pair| {
             match pair.as_rule() {
                 Rule::key_value => {
                     let mut expressions: Vec<Pair<Rule>> = pair.into_inner().collect();
@@ -102,9 +124,7 @@ fn mk_dict<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, Str
                                     })
                                 })
                             })
-                            .map(|keys| {
-                                dict.insert(keys.iter().map(|s| s.as_ref()), value)
-                            })
+                            .map(|keys| dict.insert(keys.iter().map(|s| s.as_ref()), value))
                     })
                 }
                 Rule::template => {
@@ -228,13 +248,13 @@ fn apply_template(name: &str, args: &[Value], state: &mut State) -> Result<Value
 
 #[cfg(test)]
 mod test {
-    use super::{Value, parse_noc};
+    use super::{parse_noc, Value};
     use std::collections::HashMap;
     use std::iter::FromIterator;
 
     #[test]
     fn test_empty() {
-        assert_eq!(parse_noc("").unwrap(), Value::Dict(HashMap::new()));
+        assert_eq!(parse_noc("").unwrap(), Value::Table(HashMap::new()));
     }
 
     #[test]
@@ -246,7 +266,7 @@ mod test {
     fn test_key_value() {
         assert_eq!(
             parse_noc("key value").unwrap(),
-            Value::Dict(HashMap::from_iter(vec![(
+            Value::Table(HashMap::from_iter(vec![(
                 "key".to_owned(),
                 Value::String("value".to_owned()),
             )]))
@@ -257,9 +277,9 @@ mod test {
     fn test_nested_dict() {
         assert_eq!(
             parse_noc("key { key value }").unwrap(),
-            Value::Dict(HashMap::from_iter(vec![(
+            Value::Table(HashMap::from_iter(vec![(
                 "key".to_owned(),
-                Value::Dict(HashMap::from_iter(vec![(
+                Value::Table(HashMap::from_iter(vec![(
                     "key".to_owned(),
                     Value::String("value".to_owned()),
                 )])),
@@ -271,7 +291,7 @@ mod test {
     fn test_sep_key_value_sep() {
         assert_eq!(
             parse_noc(",,,,key value,,,,").unwrap(),
-            Value::Dict(HashMap::from_iter(vec![(
+            Value::Table(HashMap::from_iter(vec![(
                 "key".to_owned(),
                 Value::String("value".to_owned()),
             )]))
@@ -282,7 +302,7 @@ mod test {
     fn test_duplicate_key() {
         assert_eq!(
             parse_noc("key value,key value1").unwrap(),
-            Value::Dict(HashMap::from_iter(vec![(
+            Value::Table(HashMap::from_iter(vec![(
                 "key".to_owned(),
                 Value::String("value1".to_owned()),
             )]))
@@ -293,7 +313,7 @@ mod test {
     fn test_multi_kv() {
         assert_eq!(
             parse_noc("key value\nkey2 value2").unwrap(),
-            Value::Dict(HashMap::from_iter(vec![
+            Value::Table(HashMap::from_iter(vec![
                 ("key".to_owned(), Value::String("value".to_owned())),
                 ("key2".to_owned(), Value::String("value2".to_owned())),
             ]))
@@ -364,7 +384,7 @@ mod test {
  key apply(template)"#;
         assert_eq!(
             parse_noc(a).unwrap(),
-            Value::Dict(HashMap::from_iter(vec![(
+            Value::Table(HashMap::from_iter(vec![(
                 "key".to_owned(),
                 Value::String("value".to_owned()),
             )]))
@@ -377,7 +397,7 @@ mod test {
                    key apply(template)"#;
         assert_eq!(
             parse_noc(a).unwrap(),
-            Value::Dict(HashMap::from_iter(vec![(
+            Value::Table(HashMap::from_iter(vec![(
                 "key".to_owned(),
                 Value::List(vec![Value::String("value".to_owned())]),
             )]))
@@ -390,7 +410,7 @@ mod test {
                    key apply(template, [value])"#;
         assert_eq!(
             parse_noc(a).unwrap(),
-            Value::Dict(HashMap::from_iter(vec![(
+            Value::Table(HashMap::from_iter(vec![(
                 "key".to_owned(),
                 Value::List(vec![Value::String("value".to_owned())]),
             )]))

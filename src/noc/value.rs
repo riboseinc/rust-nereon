@@ -26,10 +26,23 @@ use std::ffi::{OsStr, OsString};
 use std::hash::Hash;
 use std::iter::{self, FromIterator};
 
+/// Main `Value` enum with variants for strings, tables, and lists.
+///
+/// There is currently no constructor for Value instances though
+/// they can be created from `str`, `String`, `Vec` and `HashMap` instances
+///
+/// ```
+/// # extern crate nereon;
+/// # use std::collections::HashMap;
+/// # use nereon::Value;
+/// assert_eq!(Value::String("42".to_owned()), Value::from("42"));
+/// assert_eq!(Value::Table(HashMap::new()), Value::from(HashMap::<String, Value>::new()));
+/// assert_eq!(Value::List(vec![]), Value::from(Vec::<Value>::new()));
+/// ```
 #[derive(Debug, PartialEq, Clone)]
 pub enum Value {
     String(String),
-    Dict(HashMap<String, Value>),
+    Table(HashMap<String, Value>),
     List(Vec<Value>),
 }
 
@@ -64,7 +77,7 @@ where
     S: Eq + Hash,
 {
     fn from(mut m: HashMap<S, V>) -> Self {
-        Value::Dict(
+        Value::Table(
             m.drain()
                 .map(|(k, v)| (String::from(k), Value::from(v)))
                 .collect(),
@@ -82,6 +95,36 @@ where
 }
 
 impl Value {
+    /// `insert` a [`Value`](enum.Value.html) at the end of the branch
+    /// described by a list of keys. Branch nodes are `Table` variants
+    /// of `Value`.
+    ///
+    /// Missing branch nodes are automatically created. Any `String`
+    /// and `List` nodes along the path are overwritten.
+    ///
+    /// Inserting a `Table` where a `Table` already exists causes the
+    /// tables to be merged. Old table entries are overwritten by new
+    /// entries with the same key.
+    ///
+    /// # Example
+    /// ```
+    /// # extern crate nereon;
+    /// # use std::collections::HashMap;
+    /// # use nereon::{Value, parse_noc};
+    /// let mut v = Value::Table(HashMap::new());
+    /// assert_eq!(v, parse_noc("").unwrap());
+    /// v = v.insert(vec!["forename"], Value::from("John"));
+    /// assert_eq!(v, parse_noc("forename John").unwrap());
+    /// v = v.insert(vec!["surname"], Value::from("Doe"));
+    /// assert_eq!(v, parse_noc("forename John, surname Doe").unwrap());
+    /// v = v.insert(vec!["forename"], Value::from(vec!["John", "Reginald"]));
+    /// assert_eq!(v, parse_noc("forename [John, Reginald], surname Doe").unwrap());
+    /// v = v.insert(vec!["forename", "first"], Value::from("John"));
+    /// assert_eq!(v, parse_noc("forename { first John }, surname Doe").unwrap());
+    /// v = v.insert(vec!["forename", "middle"], Value::from("Reginald"));
+    /// assert_eq!(v, parse_noc(
+    ///     "forename { first John, middle Reginald }, surname Doe").unwrap());
+    /// ```
     pub fn insert<'a, I, V>(self, keys: I, value: V) -> Self
     where
         I: IntoIterator<Item = &'a str>,
@@ -93,33 +136,46 @@ impl Value {
             value
         } else {
             let key = keys.next().unwrap();
-            if let Value::Dict(mut map) = self {
+            if let Value::Table(mut map) = self {
                 let old_value = map.remove(key).filter(|v| v.is_dict());
                 map.insert(
                     key.to_owned(),
                     if keys.peek().is_none() {
                         // single key so insert in current node
                         match (value, old_value) {
-                            (Value::Dict(mut new), Some(Value::Dict(mut existing))) => {
+                            (Value::Table(mut new), Some(Value::Table(mut existing))) => {
                                 for (k, v) in new.drain() {
                                     existing.insert(k, v);
                                 }
-                                Value::Dict(existing)
+                                Value::Table(existing)
                             }
                             (v, _) => v,
                         }
                     } else {
-                        let mut node = old_value.unwrap_or_else(|| Value::Dict(HashMap::new()));
+                        let mut node = old_value.unwrap_or_else(|| Value::Table(HashMap::new()));
                         node.insert(keys.collect::<Vec<_>>(), value)
                     },
                 );
-                Value::Dict(map)
+                Value::Table(map)
             } else {
                 unreachable!()
             }
         }
     }
 
+    /// Get and convert a value from a `Value::Table` by `key`
+    ///
+    /// The return type `T` inplements `FromValue` so this method is used
+    /// to get the `Value` and convert to `T` in one call
+    ///
+    /// # Example
+    /// ```
+    /// # extern crate nereon;
+    /// # use std::collections::HashMap;
+    /// # use nereon::{Value, parse_noc};
+    /// assert_eq!(parse_noc("number 42").and_then(|v| v.get("number")), Ok("42".to_owned()));
+    /// assert_eq!(parse_noc("number 42").and_then(|v| v.get("number")), Ok(42));
+    /// ```
     pub fn get<T>(&self, key: &str) -> Result<T, String>
     where
         T: FromValue,
@@ -128,10 +184,37 @@ impl Value {
             .map_or_else(T::from_no_value, T::from_value)
     }
 
+    /// Get a `Value` from a `Value::Table` by `key`
+    ///
+    /// # Example
+    /// ```
+    /// # extern crate nereon;
+    /// # use std::collections::HashMap;
+    /// # use nereon::{Value, parse_noc};
+    /// let v = parse_noc("number 42").unwrap();
+    /// assert_eq!(v.get_value("number"), Some(&Value::String("42".to_owned())));
+    /// ```
     pub fn get_value<'a>(&'a self, key: &str) -> Option<&'a Value> {
         self.as_dict().and_then(|d| d.get(key))
     }
 
+    /// Lookup and convert a `Value` in a tree by `keys` list
+    ///
+    /// The return type `T` inplements `FromValue` so this method is used
+    /// to get the `Value` and convert to `T` in one call
+    ///
+    /// # Example
+    /// ```
+    /// # extern crate nereon;
+    /// # use std::collections::HashMap;
+    /// # use nereon::{Value, parse_noc};
+    /// assert_eq!(
+    ///     parse_noc("a { b { c 42 } }")
+    ///         .and_then(|v| v.lookup(vec!["a", "b", "c"])),
+    ///     Ok("42".to_owned()));
+    /// assert_eq!(parse_noc("a { b { c 42 } }")
+    ///    .and_then(|v| v.lookup(vec!["a", "b", "c"])), Ok(42));
+    /// ```
     pub fn lookup<'a, I, T>(&'a self, keys: I) -> Result<T, String>
     where
         I: IntoIterator<Item = &'a str>,
@@ -141,6 +224,18 @@ impl Value {
             .map_or_else(T::from_no_value, T::from_value)
     }
 
+    /// Lookup a `Value` in a tree by `keys` list
+    ///
+    /// # Example
+    /// ```
+    /// # extern crate nereon;
+    /// # use std::collections::HashMap;
+    /// # use nereon::{Value, parse_noc};
+    /// let v = parse_noc("a { b { c 42 } }").unwrap();
+    /// assert_eq!(
+    ///     v.lookup_value(vec!["a", "b", "c"]),
+    ///     Some(&Value::String("42".to_owned())));
+    /// ```
     pub fn lookup_value<'a, I>(&'a self, keys: I) -> Option<&'a Value>
     where
         I: IntoIterator<Item = &'a str>,
@@ -154,6 +249,17 @@ impl Value {
         }
     }
 
+    /// Get a reference to contained `String` from `Value`.
+    ///
+    /// Returns `None` if value isn't `Value::String` variant.
+    ///
+    /// # Example
+    /// ```
+    /// # extern crate nereon;
+    /// # use nereon::Value;
+    /// assert_eq!(Value::from("42").as_str(), Some("42"));
+    /// assert_eq!(Value::List(vec![]).as_str(), None);
+    /// ```
     pub fn as_str(&self) -> Option<&str> {
         match self {
             Value::String(s) => Some(s.as_ref()),
@@ -161,6 +267,15 @@ impl Value {
         }
     }
 
+    /// Test whether a `Value` is a `Value::String` variant.
+    ///
+    /// # Example
+    /// ```
+    /// # extern crate nereon;
+    /// # use nereon::Value;
+    /// assert_eq!(Value::from("42").is_string(), true);
+    /// assert_eq!(Value::List(vec![]).is_string(), false);
+    /// ```
     pub fn is_string(&self) -> bool {
         match self {
             Value::String(_) => true,
@@ -168,27 +283,72 @@ impl Value {
         }
     }
 
+    /// Get a reference to contained `HashMap` from `Value`
+    ///
+    /// Returns `None` if value isn't `Value::Table` variant.
+    ///
+    /// # Example
+    /// ```
+    /// # extern crate nereon;
+    /// # use nereon::Value;
+    /// # use std::collections::HashMap;
+    /// assert_eq!(Value::from("42").as_dict(), None);
+    /// assert_eq!(Value::Table(HashMap::new()).as_dict(), Some(&HashMap::new()));
+    /// ```
     pub fn as_dict<'a>(&'a self) -> Option<&'a HashMap<String, Value>> {
         match self {
-            Value::Dict(ref map) => Some(map),
+            Value::Table(ref map) => Some(map),
             _ => None,
         }
     }
 
+    /// Get a mutable reference to contained `HashMap` from `Value`
+    ///
+    /// Returns `None` if value isn't `Value::Table` variant.
+    ///
+    /// # Example
+    /// ```
+    /// # extern crate nereon;
+    /// # use nereon::Value;
+    /// # use std::collections::HashMap;
+    /// assert_eq!(Value::from("42").as_dict(), None);
+    /// assert_eq!(Value::Table(HashMap::new()).as_dict(), Some(&HashMap::new()));
+    /// ```
     pub fn as_dict_mut<'a>(&'a mut self) -> Option<&'a mut HashMap<String, Value>> {
         match self {
-            Value::Dict(ref mut map) => Some(map),
+            Value::Table(ref mut map) => Some(map),
             _ => None,
         }
     }
 
+    /// Test whether a `Value` is a `Value::Table` variant.
+    ///
+    /// # Example
+    /// ```
+    /// # extern crate nereon;
+    /// # use nereon::Value;
+    /// # use std::collections::HashMap;
+    /// assert_eq!(Value::Table(HashMap::new()).is_dict(), true);
+    /// assert_eq!(Value::from("42").is_dict(), false);
+    /// ```
     pub fn is_dict(&self) -> bool {
         match self {
-            Value::Dict(_) => true,
+            Value::Table(_) => true,
             _ => false,
         }
     }
 
+    /// Get a reference to contained `Vec` from `Value`
+    ///
+    /// Returns `None` if value isn't `Value::List` variant.
+    ///
+    /// # Example
+    /// ```
+    /// # extern crate nereon;
+    /// # use nereon::Value;
+    /// assert_eq!(Value::List(vec![]).as_list(), Some(&vec![]));
+    /// assert_eq!(Value::from("42").as_list(), None);
+    /// ```
     pub fn as_list<'a>(&'a self) -> Option<&'a Vec<Value>> {
         match self {
             Value::List(ref vec) => Some(vec),
@@ -196,6 +356,17 @@ impl Value {
         }
     }
 
+    /// Get a mutable reference to contained `Vec` from `Value`
+    ///
+    /// Returns `None` if value isn't `Value::List` variant.
+    ///
+    /// # Example
+    /// ```
+    /// # extern crate nereon;
+    /// # use nereon::Value;
+    /// assert_eq!(Value::List(vec![]).as_list(), Some(&vec![]));
+    /// assert_eq!(Value::from("42").as_list(), None);
+    /// ```
     pub fn as_list_mut<'a>(&'a mut self) -> Option<&'a mut Vec<Value>> {
         match self {
             Value::List(ref mut vec) => Some(vec),
@@ -203,6 +374,15 @@ impl Value {
         }
     }
 
+    /// Test whether a `Value` is a `Value::List` variant.
+    ///
+    /// # Example
+    /// ```
+    /// # extern crate nereon;
+    /// # use nereon::Value;
+    /// assert_eq!(Value::List(vec![]).is_list(), true);
+    /// assert_eq!(Value::from("42").is_list(), false);
+    /// ```
     pub fn is_list(&self) -> bool {
         match self {
             Value::List(_) => true,
@@ -210,6 +390,18 @@ impl Value {
         }
     }
 
+    /// Convert a `Value` into a NOC `String`
+    ///
+    /// # Example
+    /// ```
+    /// # extern crate nereon;
+    /// # use nereon::parse_noc;
+    /// assert_eq!(parse_noc(r#"
+    ///     forenames [John, Reginald]
+    ///     surname Doe
+    /// "#).map(|v| v.as_noc_string()),
+    ///     Ok(r#""forenames" ["John","Reginald"],"surname" "Doe""#.to_owned()));
+    /// ```
     pub fn as_noc_string(&self) -> String {
         match self {
             Value::String(s) => format!("\"{}\"", s),
@@ -217,18 +409,18 @@ impl Value {
                 let values = v
                     .iter()
                     .map(|v| match v {
-                        Value::Dict(_) => format!("{{{}}}", v.as_noc_string()),
+                        Value::Table(_) => format!("{{{}}}", v.as_noc_string()),
                         Value::List(_) => format!("[{}]", v.as_noc_string()),
                         Value::String(_) => v.as_noc_string(),
                     })
                     .collect::<Vec<_>>();
                 values.join(",")
             }
-            Value::Dict(m) => {
+            Value::Table(m) => {
                 let values = BTreeMap::from_iter(m.iter())
                     .iter()
                     .map(|(k, v)| match v {
-                        Value::Dict(_) => format!("\"{}\" {{{}}}", k, v.as_noc_string()),
+                        Value::Table(_) => format!("\"{}\" {{{}}}", k, v.as_noc_string()),
                         Value::List(_) => format!("\"{}\" [{}]", k, v.as_noc_string()),
                         Value::String(_) => format!("\"{}\" {}", k, v.as_noc_string()),
                     })
@@ -238,6 +430,16 @@ impl Value {
         }
     }
 
+    /// Convert a `Value` into a pretty NOC `String`
+    ///
+    /// # Example
+    /// ```
+    /// # extern crate nereon;
+    /// # use nereon::parse_noc;
+    /// assert_eq!(parse_noc("forenames [John, Reginald], surname Doe")
+    ///         .map(|v| v.as_noc_string_pretty()),
+    ///     Ok("\"forenames\" [\n\t\"John\"\n\t\"Reginald\"\n]\n\"surname\" \"Doe\"".to_owned()));
+    /// ```
     pub fn as_noc_string_pretty(&self) -> String {
         self.as_s_indent(0)
     }
@@ -251,19 +453,19 @@ impl Value {
                 .map(|v| {
                     let s = v.as_s_indent(indent + 1);
                     match v {
-                        Value::Dict(_) => format!("{}{{\n{}\n{}}}", tabs, s, tabs),
+                        Value::Table(_) => format!("{}{{\n{}\n{}}}", tabs, s, tabs),
                         Value::List(_) => format!("{}[\n{}\n{}]", tabs, s, tabs),
                         Value::String(_) => format!("{}{}", tabs, s),
                     }
                 })
                 .collect::<Vec<_>>()
                 .join("\n"),
-            Value::Dict(m) => BTreeMap::from_iter(m.iter()) // sort
+            Value::Table(m) => BTreeMap::from_iter(m.iter()) // sort
                 .iter()
                 .map(|(k, v)| {
                     let s = v.as_s_indent(indent + 1);
                     match v {
-                        Value::Dict(_) => format!("{}\"{}\" {{\n{}\n{}}}", tabs, k, s, tabs),
+                        Value::Table(_) => format!("{}\"{}\" {{\n{}\n{}}}", tabs, k, s, tabs),
                         Value::List(_) => format!("{}\"{}\" [\n{}\n{}]", tabs, k, s, tabs),
                         Value::String(_) => format!("{}\"{}\" {}", tabs, k, s),
                     }
@@ -274,6 +476,16 @@ impl Value {
     }
 }
 
+/// Trait for conversion from `Value` into arbitrary types.
+///
+/// This trait is used by the [`get`](enum.Value.html#method.get) and
+/// [`lookup`](enum.Value.html#method.lookup)
+/// [`Value`](enum.Value.html) methods.
+///
+/// Implementations exist for several standard types.
+///
+/// Implemnataions can be automatically derived by using the
+/// [`nereon_derive`](../nereon_derive/index.html) crate.
 pub trait FromValue<OK = Self> {
     fn from_value(value: &Value) -> Result<OK, String>;
     // this is a kludge so missing Values can be converted
@@ -385,7 +597,7 @@ mod tests {
     fn test_value_from() {
         assert_eq!(
             Value::from(HashMap::<String, Value>::new()),
-            Value::Dict(HashMap::new())
+            Value::Table(HashMap::new())
         );
         assert_eq!(Value::from(Vec::<&str>::new()), Value::List(Vec::new()));
         assert_eq!(Value::from("hello"), Value::String("hello".to_owned()));
@@ -441,7 +653,7 @@ mod tests {
         assert_eq!(value.get_value("c"), Some(&Value::String("c".to_owned())));
         assert_eq!(value.get_value("d"), None);
         assert_eq!(value.get_value("f"), Some(&Value::List(Vec::new())));
-        assert_eq!(value.get_value("e"), Some(&Value::Dict(HashMap::new())));
+        assert_eq!(value.get_value("e"), Some(&Value::Table(HashMap::new())));
     }
 
     #[test]

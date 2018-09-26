@@ -21,26 +21,88 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-//! `nereon` is an option parser which creates a configuration tree
-//! representing data parsed from a combination of command line
-//! options and environment variables.
+//! Use `nereon` for application configuration and option parsing.
 //!
-//! Command line options are described using [`struct Opt`](struct.Opt.html)
+//! Configuration written in
+//! [NOC](https://github.com/riboseinc/nereon-syntax) syntax can be
+//! parsed into a [`Value`](enum.Value.html) using the
+//! [`parse_noc`](fn.parse_noc.html) function.
 //!
-//! [`nereon_init`](fn.nereon_init.html) is used to parse the command line options
-//! and returns a [`noc::Value`](struct.Value.html) tree.
+//! ```
+//! extern crate nereon;
+//! use nereon::{parse_noc, Value};
+//! use std::collections::HashMap;
 //!
-//! # Examples
+//! let noc = r#"
+//!     user admin {
+//!         uid 1000
+//!         name "John Doe"
+//!     }"#;
+//!
+//! let expected = Value::Table(HashMap::new())
+//!     .insert(vec!["user", "admin", "uid"], Value::from("1000"))
+//!     .insert(vec!["user", "admin", "name"], Value::from("John Doe"));
+//!
+//! assert_eq!(parse_noc(noc), Ok(expected));
+//! ```
+//!
+//! A Nereon [`Value`](enum.Value.html) can be converted back into a NOC string:
+//!
+//! ```
+//! extern crate nereon;
+//! use nereon::parse_noc;
+//!
+//! let noc = r#"
+//!     user admin {
+//!         uid 1000 + 10
+//!         name "John Doe"
+//!     }"#;
+//!
+//! let expected = r#""user" {"admin" {"name" "John Doe","uid" "1010"}}"#
+//!     .to_owned();
+//!
+//! assert_eq!(parse_noc(noc).map(|v| v.as_noc_string()), Ok(expected));
+//! ```
+//!
+//! By using the [`nereon-derive`](../nereon_derive/index.html) crate, a
+//! Nereon [`Value`](enum.Value.html) can be converted into another type
+//! using the [`FromValue`](trait.FromValue.html) trait.
+//!
+//! ```
+//! #[macro_use]
+//! extern crate nereon_derive;
+//! extern crate nereon;
+//! use nereon::{parse_noc, FromValue, Value};
+//!
+//! # fn main() {
+//! #[derive(FromValue, PartialEq, Debug)]
+//! struct User {
+//!     uid: u32,
+//!     name: String,
+//! }
+//!
+//! let noc = r#"
+//!     uid 1000 + 10
+//!     name "John Doe"
+//! "#;
+//!
+//! let expected = User { uid: 1010, name: "John Doe".to_owned() };
+//! let user = parse_noc(noc).and_then(|v| User::from_value(&v));
+//! assert_eq!(user, Ok(expected));
+//! # }
+//! ```
+//!
+//! Nereon can also be used to parse command lines. Command line
+//! options are described with a NOS configuration in NOC syntax.
+//! Arguments from the command line are inserted into the resulting
+//! [`Value`](enum.Value.html). NOS accepts environment variables as
+//! option defaults and can optionally load further defaults from a
+//! configuration file.
 //!
 //! ```
 //! # extern crate nereon;
 //! use nereon::{configure, parse_noc, Value, Nos, FromValue};
 //! use std::collections::HashMap;
-//!
-//! let noc = r#"user admin {uid 1000}"#;
-//! let expected = Value::Dict(HashMap::new())
-//!     .insert(vec!["user", "admin", "uid"], Value::from("1000"));
-//! assert_eq!(parse_noc(noc), Ok(expected));
 //!
 //! let nos = r#"
 //!     name "Nereon test"
@@ -64,18 +126,20 @@
 //!         usage "Permissions for user"
 //!     }"#;
 //!
-//! // create an example NOC config file
+//! // create an example NOC config file and environment variables
 //! ::std::fs::write("/tmp/nereon_test", "user admin permissions read").unwrap();
-//!
 //! ::std::env::set_var("nereon_config", "/tmp/nereon_test");
 //! ::std::env::set_var("nereon_permissions", "read,write");
+//!
 //! let expected = parse_noc(r#"
 //!     user admin uid 100
 //!     user admin permissions "read,write""#
 //! ).unwrap();
+//!
 //! let nos = Nos::from_value(&parse_noc(nos).unwrap()).unwrap();
 //! assert_eq!(configure(&nos, &["program", "-u", "100"]), Ok(expected));
-//! ::std::fs::remove_file("/tmp/nereon_test").unwrap();
+//!
+//! # ::std::fs::remove_file("/tmp/nereon_test").unwrap();
 //! ```
 
 extern crate clap;
@@ -104,8 +168,7 @@ mod noc;
 
 pub use noc::{parse_noc, FromValue, Value};
 
-/// Parse command-line options into a
-/// [`noc::Value`](https://docs.serde.rs/serde_json/value/enum.Value.html).
+/// Parse command-line options into a [`Value`](enum.Value.html).
 ///
 /// # Examples
 ///
@@ -127,19 +190,18 @@ pub use noc::{parse_noc, FromValue, Value};
 ///         usage "User name"
 ///         key [username]
 ///     }"#;
-/// let expected = Value::Dict(HashMap::new())
+/// let expected = Value::Table(HashMap::new())
 ///     .insert(vec!["username"], Value::from("root"));
 /// let nos = Nos::from_value(&parse_noc(nos).unwrap()).unwrap();
 /// assert_eq!(configure(&nos, &["program", "-u", "root"]), Ok(expected));
 /// ```
-
 pub fn configure<'a, U, I>(nos: &Nos, args: U) -> Result<Value, String>
 where
     U: IntoIterator<Item = I>,
     I: Into<OsString> + Clone,
 {
     if nos.option.is_none() {
-        return Ok(Value::Dict(HashMap::new()));
+        return Ok(Value::Table(HashMap::new()));
     }
 
     let options = nos.option.as_ref().unwrap();
@@ -185,7 +247,7 @@ where
     }
 
     // read the config file if there is one
-    let mut config = Value::Dict(HashMap::new());
+    let mut config = Value::Table(HashMap::new());
     if let Some(n) = matches.value_of_os("config") {
         let mut buffer = String::new();
         config = File::open(&n)
@@ -250,7 +312,7 @@ option username {
     usage "User name"
     key [username]
 }"#;
-        let expected = Value::Dict(HashMap::new()).insert(vec!["username"], Value::from("root"));
+        let expected = Value::Table(HashMap::new()).insert(vec!["username"], Value::from("root"));
         let nos = Nos::from_value(&parse_noc(nos).unwrap()).unwrap();
         assert_eq!(configure(&nos, &["program", "-u", "root"]), Ok(expected));
     }
@@ -262,7 +324,7 @@ option username {
 
         let noc = r#"user admin {uid 1000}"#;
         let expected =
-            Value::Dict(HashMap::new()).insert(vec!["user", "admin", "uid"], Value::from("1000"));
+            Value::Table(HashMap::new()).insert(vec!["user", "admin", "uid"], Value::from("1000"));
         assert_eq!(parse_noc(noc), Ok(expected));
 
         let nos = r#"

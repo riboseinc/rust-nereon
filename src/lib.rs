@@ -87,7 +87,7 @@
 //! "#;
 //!
 //! let expected = User { uid: 1010, name: "John Doe".to_owned() };
-//! let user = parse_noc::<Value>(noc).and_then(|v| User::from_value(&v));
+//! let user = parse_noc::<User>(noc);
 //! assert_eq!(user, Ok(expected));
 //! # }
 //! ```
@@ -191,10 +191,11 @@ pub use noc::{parse_noc, FromValue, Value};
 ///     .insert(vec!["username"], Value::from("root"));
 /// assert_eq!(configure::<Value, _, _>(nos, &["program", "-u", "root"]), Ok(expected));
 /// ```
-pub fn configure<T, U, I>(nos: &str, args: U) -> Result<T, String>
+pub fn configure<T, U: IntoIterator<Item = I>, I: Into<OsString> + Clone>(
+    nos: &str,
+    args: U,
+) -> Result<T, String>
 where
-    U: IntoIterator<Item = I>,
-    I: Into<OsString> + Clone,
     T: FromValue,
 {
     let nos = parse_noc::<Nos>(nos)?;
@@ -268,7 +269,7 @@ where
                     .map(Value::from)
                     .or_else(|| {
                         config
-                            .lookup_value(key_to_strs(&option))
+                            .lookup(key_to_strs(&option))
                             .map_or_else(|| option.default.clone().map(Value::from), |_| None)
                     })
             } else {
@@ -284,7 +285,7 @@ where
         }
         config
     });
-    T::from_value(&config)
+    T::from_value(config)
 }
 
 #[cfg(test)]
@@ -308,7 +309,10 @@ option username {
     key [username]
 }"#;
         let expected = Value::Table(HashMap::new()).insert(vec!["username"], Value::from("root"));
-        assert_eq!(configure::<Value, _, _>(nos, &["program", "-u", "root"]), Ok(expected));
+        assert_eq!(
+            configure::<Value, _, _>(nos, &["program", "-u", "root"]),
+            Ok(expected)
+        );
     }
 
     #[test]
@@ -353,7 +357,10 @@ option permissions {
             user admin uid 100
             user admin permissions "read,write""#,
         ).unwrap();
-        assert_eq!(configure::<Value, _, _>(nos, &["program", "-u", "100"]), Ok(expected));
+        assert_eq!(
+            configure::<Value, _, _>(nos, &["program", "-u", "100"]),
+            Ok(expected)
+        );
         ::std::fs::remove_file("/tmp/nereon_test").unwrap();
     }
 }

@@ -28,7 +28,7 @@ extern crate tiny_http;
 
 mod artifacts;
 
-use nereon::{parse_noc, FromValue, Nos, Value};
+use nereon::{parse_noc, FromValue, Value};
 use std::env;
 use std::io::Write;
 use std::io::{self, Read};
@@ -53,9 +53,7 @@ struct Config {
 }
 
 pub fn main() -> Result<(), String> {
-    let nos = Nos::from_value(&parse_noc(NOS).unwrap()).unwrap();
-    let config = nereon::configure(&nos, env::args_os())?;
-    let config = Config::from_value(&config).unwrap();
+    let config = nereon::configure::<Config, _, _>(NOS, env::args_os())?;
 
     config
         .port
@@ -69,7 +67,7 @@ fn parse() -> io::Result<()> {
     io::stdout().write_all({
         let mut noc = String::new();
         stdin.lock().read_to_string(&mut noc)?;
-        parse_noc(&noc).unwrap().as_noc_string().as_ref()
+        parse_noc::<Value>(&noc).unwrap().as_noc_string().as_ref()
     })?;
     Ok(())
 }
@@ -81,8 +79,7 @@ fn playground(port: u32) -> io::Result<()> {
                 Ok(req) => handle_request(req)?,
                 Err(e) => return Err(Box::new(e)),
             };
-        })
-        .map_err(|e| *e.downcast::<io::Error>().unwrap())
+        }).map_err(|e| *e.downcast::<io::Error>().unwrap())
 }
 
 fn handle_request(mut req: Request) -> io::Result<()> {
@@ -99,7 +96,7 @@ fn handle_request(mut req: Request) -> io::Result<()> {
             "/parse" => {
                 let mut body = String::new();
                 if req.as_reader().read_to_string(&mut body).is_ok() {
-                    req.respond(Response::from_string(match parse_noc(&body) {
+                    req.respond(Response::from_string(match parse_noc::<Value>(&body) {
                         Ok(s) => s.as_noc_string_pretty(),
                         Err(e) => format!("{:?}", e),
                     }))

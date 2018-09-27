@@ -35,7 +35,7 @@ mod value;
 
 pub use self::value::{FromValue, Value};
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 struct State<'a> {
     templates: Vec<(String, Pair<'a, Rule>)>,
     args: Vec<Value>,
@@ -92,7 +92,7 @@ where
                     args: Vec::new(),
                 },
             )
-        }).and_then(|v| T::from_value(&v))
+        }).and_then(|v| T::from_value(v))
 }
 
 fn mk_value<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, String> {
@@ -119,7 +119,7 @@ fn mk_dict<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, Str
                             .into_iter()
                             .try_fold(Vec::new(), |mut keys, e| {
                                 mk_value(e, state).and_then(|key| {
-                                    String::from_value(&key).map(|key| {
+                                    String::from_value(key).map(|key| {
                                         keys.push(key);
                                         keys
                                     })
@@ -204,7 +204,7 @@ fn mk_quoted(quoted: Pair<Rule>) -> Result<Value, String> {
 fn mk_template<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) {
     let mut iter = pair.into_inner();
     let name = mk_value(iter.next().unwrap(), state)
-        .and_then(|v| String::from_value(&v))
+        .and_then(|v| String::from_value(v))
         .unwrap();
     state.templates.push((name, iter.next().unwrap()));
 }

@@ -23,31 +23,8 @@
 
 //! A Nereon [Value](../nereon/enum.Value.html) can be converted into
 //! another type using the [FromValue](../nereon/trait.FromValue.html)
-//! trait.
-//!
-//! ```
-//! #[macro_use]
-//! extern crate nereon_derive;
-//! extern crate nereon;
-//! use nereon::{parse_noc, FromValue, Value};
-//!
-//! # fn main() {
-//! #[derive(FromValue, PartialEq, Debug)]
-//! struct User {
-//!     uid: u32,
-//!     name: String,
-//! }
-//!
-//! let noc = r#"
-//!     uid 1000 + 10
-//!     name "John Doe"
-//! "#;
-//!
-//! let expected = User { uid: 1010, name: "John Doe".to_owned() };
-//! let user = parse_noc(noc).and_then(|v| User::from_value(&v));
-//! assert_eq!(user, Ok(expected));
-//! # }
-//! ```
+//! trait. See the [`nereon`](../nereon/index.html) crate for
+//! example usage.
 
 extern crate syn;
 #[macro_use]
@@ -64,51 +41,71 @@ pub fn derive_from_value(input: TokenStream) -> TokenStream {
     let ast = syn::parse::<syn::DeriveInput>(input).unwrap();
     let name = &ast.ident;
     let body = match ast.data {
-        syn::Data::Struct(ref s) => impl_derive_from_value_struct(s),
-        syn::Data::Enum(ref e) => impl_derive_from_value_enum(e),
+        syn::Data::Struct(ref s) => impl_derive_from_value_struct(&name, s),
+        syn::Data::Enum(ref e) => impl_derive_from_value_enum(&name, e),
         _ => unreachable!(),
     };
     let gen = quote! {
         impl FromValue for #name {
-            fn from_value(v: &Value) -> Result<Self, String> {
-                Ok(#name {
-                    #body
-                })
+            fn from_value(mut v: Value) -> Result<Self, String> {
+                #body
             }
         }
     };
     gen.into()
 }
 
-fn impl_derive_from_value_struct(data: &syn::DataStruct) -> TokenStream2 {
+fn impl_derive_from_value_struct(name: &syn::Ident, data: &syn::DataStruct) -> TokenStream2 {
     match data.fields {
-        syn::Fields::Named(_) => impl_derive_from_value_struct_named(&data.fields),
-        syn::Fields::Unnamed(_) => impl_derive_from_value_struct_unnamed(&data.fields),
-        syn::Fields::Unit => impl_derive_from_value_struct_unit(),
+        syn::Fields::Named(_) => impl_derive_from_value_struct_named(name, &data.fields),
+        syn::Fields::Unnamed(_) => impl_derive_from_value_struct_unnamed(name, &data.fields),
+        syn::Fields::Unit => impl_derive_from_value_struct_unit(name),
     }
 }
 
-fn impl_derive_from_value_struct_named(fields: &syn::Fields) -> TokenStream2 {
-    fields
+fn impl_derive_from_value_struct_named(name: &syn::Ident, fields: &syn::Fields) -> TokenStream2 {
+    let fields: TokenStream2 = fields
         .iter()
         .fold(quote!{}, |q, f| {
-            let name = f.ident.as_ref().unwrap();
+            let n = f.ident.as_ref().unwrap();
             quote! {
                 #q
-                #name: v.get(stringify!(#name))?,
+                #n: table.remove(stringify!(#n)).map_or_else(
+                    || convert_no_value()
+                        .map_err(|e| format!("Cannot convert to {}. Field {}: {}", stringify!(#name), stringify!(#n), e)),
+                    convert
+                )?,
             }
+        }).into();
+    quote! {
+        #[inline]
+        fn convert<T: FromValue>(v: Value) -> Result<T, String> {
+            T::from_value(v)
+        }
+        #[inline]
+        fn convert_no_value<T: FromValue>() -> Result<T, String> {
+            T::from_no_value()
+        }
+        let table = v.as_table_mut().ok_or_else(
+            || format!("Cannot convert to {}: not a Table", stringify!(#name))
+        )?;
+        Ok( #name {
+            #fields
         })
-        .into()
+    }
 }
 
-fn impl_derive_from_value_struct_unnamed(_fields: &syn::Fields) -> TokenStream2 {
+fn impl_derive_from_value_struct_unnamed(
+    _name: &syn::Ident,
+    _fields: &syn::Fields,
+) -> TokenStream2 {
     unimplemented!()
 }
 
-fn impl_derive_from_value_struct_unit() -> TokenStream2 {
+fn impl_derive_from_value_struct_unit(_name: &syn::Ident) -> TokenStream2 {
     unimplemented!()
 }
 
-fn impl_derive_from_value_enum(_data: &syn::DataEnum) -> TokenStream2 {
+fn impl_derive_from_value_enum(_name: &syn::Ident, _data: &syn::DataEnum) -> TokenStream2 {
     unimplemented!()
 }

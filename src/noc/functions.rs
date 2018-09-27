@@ -71,8 +71,7 @@ pub fn power(args: &[Value]) -> Result<Value, String> {
             } else {
                 Err(())
             }
-        })
-        .or_else(|_| convert::<f64>(args).map(|(lhs, rhs)| lhs.powf(rhs).to_string()))
+        }).or_else(|_| convert::<f64>(args).map(|(lhs, rhs)| lhs.powf(rhs).to_string()))
         .map_err(|_| "Power requires two numeric arguments".to_owned())
         .map(Value::String)
 }
@@ -98,13 +97,11 @@ fn convert<T: FromStr>(args: &[Value]) -> Result<(T, T), ()> {
             args.get(0)
                 .and_then(|lhs| args.get(1).map(|rhs| (lhs, rhs)))
                 .ok_or(())
-        })
-        .and_then(|(lhs, rhs)| {
+        }).and_then(|(lhs, rhs)| {
             lhs.as_str()
                 .and_then(|lhs| rhs.as_str().map(|rhs| (lhs, rhs)))
                 .ok_or(())
-        })
-        .and_then(|(lhs, rhs)| {
+        }).and_then(|(lhs, rhs)| {
             lhs.parse::<T>()
                 .and_then(|lhs| rhs.parse::<T>().map(|rhs| (lhs, rhs)))
                 .map_err(|_| ())

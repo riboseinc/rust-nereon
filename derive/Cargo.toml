@@ -1,5 +1,6 @@
 [package]
 name = "nereon_derive"
+description = "Automatic Nereon FromValue trait implementations."
 version = "0.1.0"
 authors = ["John Hedges <john@drystone.co.uk>"]
 license = "BSD-2-Clause"

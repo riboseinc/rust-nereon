@@ -16,8 +16,8 @@ members = ["noc", "derive", "derive-test"]
 clap = "2.32"
 lazy_static = "1.1"
 pest = "1.0"
-pest_derive = "*"
-nereon_derive = { path = "derive" }
+pest_derive = "1.0"
+nereon_derive = "0.1"
 
 [dev-dependencies]
 toml = "0.4"

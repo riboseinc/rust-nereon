@@ -10,7 +10,7 @@
 //    documentation and/or other materials provided with the distribution.
 //
 // THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-// ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NO/T
+// ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
 // LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
 // A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
 // OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
@@ -21,95 +21,33 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-extern crate getopts;
+use super::{FromValue, Value};
+use std::collections::HashMap;
 
-#[derive(Clone, Debug, Default)]
-pub struct Opt {
-    /// Dot separated path of destination node for this option. eg. `"root.leaf"`.
-    pub key: Vec<String>,
-    /// Short option as single character string `"s"` matches `-s`.
+#[derive(FromValue, Debug, PartialEq)]
+pub struct Command {
+    pub command: Option<HashMap<String, Command>>,
+    pub option: Option<HashMap<String, UserOption>>,
+}
+
+#[derive(FromValue, Debug, PartialEq)]
+pub struct UserOption {
     pub short: Option<String>,
-    /// Long option `"long"` matches `--long`.
     pub long: Option<String>,
-    /// Environment variable to use if option not parsed from command line.
     pub env: Option<String>,
-    /// `OptFlag` values as `u32`. eg `Multiple as u32 | NoArg as u32`.
-    pub flags: u32,
-    /// Value to use if not parsed from command line or environment variable.
+    pub default_arg: Option<String>,
     pub default: Option<String>,
-    /// Description of option used to generate the usage message.
-    pub usage: Option<String>,
+    pub hint: Option<String>,
+    pub usage: String,
+    pub key: Vec<String>,
 }
 
-pub enum OptFlag {
-    /// Option is not required.
-    Optional = 1,
-    /// Option can appear more than once.
-    Multiple = 2,
-    /// Option doesn;t take an argument.
-    NoArg = 4,
-    /// Option may be used with or without an argument.
-    OptionalArg = 8,
-}
-
-impl Opt {
-    /// Creates a new `Opt` instance for use with [nereon_init](fn.nereon_init.html)
-    /// or [nereon_json](fn.nereon_json.html)
-    ///
-    /// # Arguments
-    /// * `key` - Dot separated path of destination node for this option. eg. `"root.leaf"`.
-    /// * `short` - Short option as single character string `"s"` matches `-s`.
-    /// * `long` - Long option `"long"` matches `--long`.
-    /// * `env` - Environment variable to use if option not parsed from command line.
-    /// * `flags` - `OptFlag` values as `u32`. eg `Multiple as u32 | NoArg as u32`.
-    /// * `default` - Value to use if not parsed from command line or environment variable.
-    /// * `usage` - Description of option used to generate the usage message.
-    pub fn new(
-        key: &[&str],
-        short: Option<&str>,
-        long: Option<&str>,
-        env: Option<&str>,
-        flags: u32,
-        default: Option<&str>,
-        usage: Option<&str>,
-    ) -> Opt {
-        Opt {
-            key: {
-                key.iter().map(|k| (*k).to_owned()).collect()
-            },
-            short: short.map(String::from),
-            long: long.map(String::from),
-            env: env.map(String::from),
-            flags: flags,
-            default: default.map(String::from),
-            usage: usage.map(String::from),
-        }
-    }
-
-    fn to_getopts(&self, options: &mut getopts::Options) {
-        if self.short.is_some() || self.long.is_some() {
-            let mut hasarg = getopts::HasArg::Yes;
-            if self.flags & OptFlag::NoArg as u32 != 0 {
-                hasarg = getopts::HasArg::No;
-            } else if self.flags & OptFlag::OptionalArg as u32 != 0 {
-                hasarg = getopts::HasArg::Maybe;
-            }
-
-            options.opt(
-                self.short.as_ref().map_or("", String::as_str),
-                self.long.as_ref().map_or("", String::as_str),
-                self.usage.as_ref().map_or("", String::as_str),
-                "",
-                hasarg,
-                // getopts occurrence handling is a bit broken
-                // as it disallows (opt AND multi) or (req AND multi)
-                // so we use Multi and deal with it later
-                getopts::Occur::Multi,
-            );
-        }
-    }
-}
-
-pub fn opt_to_getopts(opt: &Opt, options: &mut getopts::Options) {
-    opt.to_getopts(options);
+#[derive(FromValue, Debug, PartialEq)]
+pub struct Nos {
+    pub name: String,
+    pub authors: Vec<String>,
+    pub version: String,
+    pub license: String,
+    pub command: Option<HashMap<String, Command>>,
+    pub option: Option<HashMap<String, UserOption>>,
 }

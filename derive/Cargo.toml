@@ -1,0 +1,16 @@
+[package]
+name = "nereon_derive"
+description = "Automatic Nereon FromValue trait implementations."
+version = "0.2.0"
+authors = ["John Hedges <john@drystone.co.uk>"]
+license = "BSD-2-Clause"
+repository = "https://github.com/riboseinc/rust-nereon"
+exclude = ["/**/*~", "/**/.dir-locals.el"]
+
+[dependencies]
+syn = "0.15"
+quote = "0.6"
+proc-macro2 = "0.4"
+
+[lib]
+proc-macro = true

@@ -21,87 +21,127 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-//! `nereon` is an option parser which creates a configuration tree
-//! representing data parsed from a combination of command line
-//! options and environment variables.
+//! Use `nereon` for application configuration and option parsing.
 //!
-//! Command line options are described using [`struct Opt`](struct.Opt.html)
-//!
-//! [`nereon_init`](fn.nereon_init.html) is used to parse the command line options
-//! and returns a [`noc::Value`](struct.Value.html) tree.
-//!
-//! # Examples
+//! Configuration written in
+//! [NOC](https://github.com/riboseinc/nereon-syntax) syntax can be
+//! parsed into a [`Value`](enum.Value.html) using the
+//! [`parse_noc`](fn.parse_noc.html) function.
 //!
 //! ```
 //! extern crate nereon;
-//! use nereon::{Opt, nereon_init, Value};
-//! # use std::collections::HashMap;
-//! # use std::iter::FromIterator;
+//! use nereon::{parse_noc, Value};
+//! use std::collections::HashMap;
 //!
-//! let noc = r#"user "admin" {uid 1000}"#;
-//! let mut expected = Value::Dict(HashMap::new());
-//! expected.insert(
-//!     vec!["user".to_owned(),"admin".to_owned(), "uid".to_owned()],
-//!     Value::String("1000".to_owned()));
+//! let noc = r#"
+//!     user admin {
+//!         uid 1000
+//!         name "John Doe"
+//!     }"#;
 //!
-//! assert_eq!(noc.parse(), Ok(expected));
+//! let expected = Value::Table(HashMap::new())
+//!     .insert(vec!["user", "admin", "uid"], Value::from("1000"))
+//!     .insert(vec!["user", "admin", "name"], Value::from("John Doe"));
 //!
-//! // .. or can be expanded during option processing with nereon_init
-//! let options = vec![
-//!     Opt::new(
-//!         &[],
-//!         None,
-//!         None,
-//!         Some("nereon_config"),
-//!         0,
-//!         None,
-//!         Some("Config file"),
-//!     ),
-//!     Opt::new(
-//!         &["user", "admin", "uid"],
-//!         Some("u"),
-//!         None,
-//!         None,
-//!         0,
-//!         None,
-//!         Some("UID of admin user"),
-//!     ),
-//!     Opt::new(
-//!         &["user", "admin", "permissions"],
-//!         None,
-//!         None,
-//!         Some("nereon_permissions"),
-//!         0,
-//!         None,
-//!         Some("Permissions for admin user"),
-//!     ),
-//! ];
+//! assert_eq!(parse_noc::<Value>(noc), Ok(expected));
+//! ```
 //!
-//! let args = "-u 100".split(" ").map(|a| a.to_owned()).collect::<Vec<_>>();
+//! A Nereon [`Value`](enum.Value.html) can be converted back into a NOC string:
 //!
-//! // create an example NOC config file
-//! std::fs::write("/tmp/nereon_test", r#"
-//!     user "admin" {
-//!         permissions read
+//! ```
+//! extern crate nereon;
+//! use nereon::{parse_noc, Value};
+//!
+//! let noc = r#"
+//!     user admin {
+//!         uid 1000 + 10
+//!         name "John Doe"
+//!     }"#;
+//!
+//! let expected = r#""user" {"admin" {"name" "John Doe","uid" "1010"}}"#
+//!     .to_owned();
+//!
+//! assert_eq!(parse_noc::<Value>(noc).map(|v| v.as_noc_string()), Ok(expected));
+//! ```
+//!
+//! By using the [`nereon-derive`](../nereon_derive/index.html) crate, a
+//! Nereon [`Value`](enum.Value.html) can be converted into another type
+//! using the [`FromValue`](trait.FromValue.html) trait.
+//!
+//! ```
+//! #[macro_use]
+//! extern crate nereon_derive;
+//! extern crate nereon;
+//! use nereon::{parse_noc, FromValue, Value};
+//!
+//! # fn main() {
+//! #[derive(FromValue, PartialEq, Debug)]
+//! struct User {
+//!     uid: u32,
+//!     name: String,
+//! }
+//!
+//! let noc = r#"
+//!     uid 1000 + 10
+//!     name "John Doe"
+//! "#;
+//!
+//! let expected = User { uid: 1010, name: "John Doe".to_owned() };
+//! let user = parse_noc::<User>(noc);
+//! assert_eq!(user, Ok(expected));
+//! # }
+//! ```
+//!
+//! Nereon can also be used to parse command lines. Command line
+//! options are described with a NOS configuration in NOC syntax.
+//! Arguments from the command line are inserted into the resulting
+//! [`Value`](enum.Value.html). NOS accepts environment variables as
+//! option defaults and can optionally load further defaults from a
+//! configuration file.
+//!
+//! ```
+//! # extern crate nereon;
+//! use nereon::{configure, parse_noc, Value, FromValue};
+//! use std::collections::HashMap;
+//!
+//! let nos = r#"
+//!     name "Nereon test"
+//!     authors ["John Doe <john@doe.me>"]
+//!     license Free
+//!     version "0.0.1"
+//!     option config {
+//!         env nereon_config
+//!         usage "Config file"
+//!         key []
 //!     }
-//! "#);
+//!     option user {
+//!         short u
+//!         key [user, admin, uid]
+//!         usage "User's UID"
+//!         hint USER
+//!     }
+//!     option permissions {
+//!         env nereon_permissions
+//!         key [user, admin, permissions]
+//!         usage "Permissions for user"
+//!     }"#;
 //!
-//! std::env::set_var("nereon_config", "/tmp/nereon_test");
-//! std::env::set_var("nereon_permissions", "read,write");
+//! // create an example NOC config file and environment variables
+//! ::std::fs::write("/tmp/nereon_test", "user admin permissions read").unwrap();
+//! ::std::env::set_var("nereon_config", "/tmp/nereon_test");
+//! ::std::env::set_var("nereon_permissions", "read,write");
 //!
-//! let mut expected = Value::Dict(HashMap::new());
-//! expected.insert(
-//!     vec!["user".to_owned(), "admin".to_owned(), "uid".to_owned()],
-//!     Value::String("100".to_owned()));
-//! expected.insert(
-//!     vec!["user".to_owned(), "admin".to_owned(), "permissions".to_owned()],
-//!     Value::String("read,write".to_owned()));
+//! let expected = parse_noc::<Value>(r#"
+//!     user admin uid 100
+//!     user admin permissions "read,write""#
+//! ).unwrap();
 //!
-//! assert_eq!(nereon_init(options, args), Ok(expected));
-//! std::fs::remove_file("/tmp/nereon_test");
+//! assert_eq!(configure::<Value, _, _>(&nos, &["program", "-u", "100"]), Ok(expected));
+//!
+//! # ::std::fs::remove_file("/tmp/nereon_test").unwrap();
 //! ```
 
-extern crate getopts;
+extern crate clap;
 
 #[macro_use]
 extern crate pest_derive;
@@ -110,136 +150,217 @@ extern crate pest;
 #[macro_use]
 extern crate lazy_static;
 
-use std::collections::{HashMap};
+#[macro_use]
+extern crate nereon_derive;
+
+use std::collections::HashMap;
 use std::env;
+use std::ffi::OsString;
 use std::fs::File;
 use std::io::Read;
 
 mod nos;
+use nos::{Nos, UserOption};
 
-use nos::opt_to_getopts;
-pub use nos::{Opt, OptFlag};
+mod noc;
+pub use noc::{parse_noc, FromValue, Value};
 
-pub mod noc;
-
-pub use noc::Value;
-
-/// Parse command-line options into a
-/// [`noc::Value`](https://docs.serde.rs/serde_json/value/enum.Value.html).
+/// Parse command-line options into a [`Value`](enum.Value.html).
 ///
 /// # Examples
 ///
 /// ```
 /// # extern crate nereon;
-/// # use nereon::{nereon_init, Opt, OptFlag, Value};
-/// # use std::collections::HashMap;
-/// let options = vec![
-///     Opt::new(
-///         &["username"],
-///         Some("u"),
-///         Some("user"),
-///         Some("NEREON_USER"),
-///         0,
-///         Some("admin"),
-///         Some("User name"),
-///     ),
-/// ];
-/// let args = "-u root".split(" ").map(|a| a.to_owned()).collect::<Vec<_>>();
-/// let mut expected = Value::Dict(HashMap::new());
-/// expected.insert(vec!["username".to_owned()], Value::String("root".to_owned()));
-/// assert_eq!(nereon_init(options, args), Ok(expected));
+/// use std::collections::HashMap;
+/// use nereon::{Value, parse_noc, configure, FromValue};
+/// let nos = r#"
+///     name "Nereon test"
+///     authors ["John Doe <john@doe.me>"]
+///     version "0.0.1"
+///     license Free
+///     option username {
+///         short u
+///         long user
+///         env NEREON_USER
+///         default admin
+///         hint USER
+///         usage "User name"
+///         key [username]
+///     }"#;
+/// let expected = Value::Table(HashMap::new())
+///     .insert(vec!["username"], Value::from("root"));
+/// assert_eq!(configure::<Value, _, _>(nos, &["program", "-u", "root"]), Ok(expected));
 /// ```
-
-pub fn nereon_init<T, U>(options: T, args: U) -> Result<Value, String>
+pub fn configure<T, U: IntoIterator<Item = I>, I: Into<OsString> + Clone>(
+    nos: &str,
+    args: U,
+) -> Result<T, String>
 where
-    T: IntoIterator<Item = Opt>,
-    U: IntoIterator<Item = String>,
+    T: FromValue,
 {
-    // collect options
-    let mut options = options.into_iter().collect::<Vec<_>>();
+    let nos = parse_noc::<Nos>(nos)?;
+
+    let options = nos.option.as_ref().unwrap();
 
     // get command line options
-    let mut getopts_options = getopts::Options::new();
+    let mut clap_app = clap::App::new(nos.name.to_owned())
+        .version(nos.version.as_str())
+        .about(nos.license.as_str());
 
-    for o in &options {
-        opt_to_getopts(&o, &mut getopts_options);
+    for a in nos.authors.iter() {
+        clap_app = clap_app.author(a.as_str());
     }
 
-    let matches = match getopts_options.parse(args) {
-        Ok(ms) => ms,
-        Err(e) => return Err(format!("{:?}", e)),
+    for (n, o) in options.iter() {
+        let mut arg = clap::Arg::with_name(n.as_str()).required(true);
+        if let Some(ref s) = o.short {
+            arg = arg.short(s);
+        }
+        if let Some(ref l) = o.long {
+            arg = arg.long(l);
+        }
+        if let Some(ref d) = o.default {
+            arg = arg.default_value(d);
+        }
+        if o.default_arg.is_none() {
+            arg = arg.takes_value(true);
+        }
+        if let Some(ref e) = o.env {
+            arg = arg.env(e);
+        }
+        if let Some(ref h) = o.hint {
+            arg = arg.value_name(h);
+        }
+        clap_app = clap_app.arg(arg);
+    }
+
+    let matches = clap_app
+        .get_matches_from_safe(args)
+        .map_err(|e| format!("{}", e))?;
+
+    fn key_to_strs(option: &UserOption) -> Vec<&str> {
+        option.key.iter().map(|k| k.as_str()).collect()
+    }
+
+    // read the config file if there is one
+    let mut config = Value::Table(HashMap::new());
+    if let Some(n) = matches.value_of_os("config") {
+        let mut buffer = String::new();
+        config = File::open(&n)
+            .and_then(|ref mut f| f.read_to_string(&mut buffer))
+            .map_err(|e| format!("{:?}", e))
+            .and_then(|_| parse_noc::<Value>(&buffer))
+            .and_then(|v| {
+                Ok({
+                    let keys = key_to_strs(&options.get("config").unwrap());
+                    config.insert(keys, v)
+                })
+            })?
     };
 
-    // rearrange options to put file option first
-    // file option, if any, has 0 length key
-    if let Some(idx) = options.iter().position(|o| o.key.is_empty()) {
-        let t = options.swap_remove(idx);
-        options.push(t);
-        let t = options.swap_remove(0);
-        options.push(t);
-    }
-
     // build the config tree
-    let mut config = Value::Dict(HashMap::new());
-    for o in options {
-        let long_opt = o.long.as_ref();
-        let short_opt = o.short.as_ref();
-        let env = o.env.as_ref();
-
-        // get values for each option, first looking in command line arguments
-        // then the environment and finally use default
-        let mut values = long_opt
-            .map(|n| matches.opt_strs(&n))
-            .or_else(|| short_opt.map(|n| matches.opt_strs(&n)))
-            .filter(|vs| !vs.is_empty())
-            .or_else(|| {
-                env.and_then(|n| env::var(&n).ok())
-                    .or_else(|| o.default.as_ref().map(|v| v.to_owned()))
-                    .map(|v| vec![v])
-            });
-
-        let mut values = match values {
-            Some(vs) => vs,
-            None => {
-                return Err(long_opt
-                    .or(short_opt)
-                           .map_or(format!("Required option not supplied {:?}", o), |n| {
-                        format!("Option is required ({})", n)
-                    }))
-            }
-        };
-
-        // read config file if this option is file_opt
-        // file option, if any, has 0 length key
-        if o.key.is_empty() {
-            config = {
-                let mut buffer = String::new();
-                let c = File::open(&values[0])
-                    .and_then(|ref mut f| f.read_to_string(&mut buffer))
-                    .map_err(|e| format!("{:?}", e))
-                    .and_then(|_| buffer.parse());
-                if c.is_err() {
-                    return c;
-                } else {
-                    c.unwrap()
-                }
+    config = options.iter().fold(config, |mut config, (name, option)| {
+        if name != "config" {
+            let value = if matches.occurrences_of(name) == 0 {
+                option
+                    .env
+                    .as_ref()
+                    .and_then(env::var_os)
+                    .map(Value::from)
+                    .or_else(|| {
+                        config
+                            .lookup(key_to_strs(&option))
+                            .map_or_else(|| option.default.clone().map(Value::from), |_| None)
+                    })
+            } else {
+                matches
+                    .value_of_os(name)
+                    .map(Value::from)
+                    .or_else(|| option.default_arg.clone().map(Value::from))
             };
-            continue;
+            if let Some(v) = value {
+                let keys = key_to_strs(option);
+                config = config.insert(keys, v);
+            }
         }
-
-        // convert to `noc::Value::String`s
-        let mut values = values.drain(..).map(Value::String).collect::<Vec<_>>();
-
-        // convert to `String` or `List` depending on flags
-        let mut value = match o.flags & OptFlag::Multiple as u32 {
-            0 => values.swap_remove(0),
-            _ => Value::List(values),
-        };
-
-        config.insert(o.key, value);
-    }
-    Ok(config)
+        config
+    });
+    T::from_value(config)
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    #[test]
+    fn test_configure() {
+        use super::{configure, Value};
+        use std::collections::HashMap;
+        let nos = r#"
+name "Nereon test"
+authors ["John Doe <john@doe.me>"]
+version "0.0.1"
+license Free
+option username {
+    short u
+    long user
+    env NEREON_USER
+    default admin
+    hint USER
+    usage "User name"
+    key [username]
+}"#;
+        let expected = Value::Table(HashMap::new()).insert(vec!["username"], Value::from("root"));
+        assert_eq!(
+            configure::<Value, _, _>(nos, &["program", "-u", "root"]),
+            Ok(expected)
+        );
+    }
+
+    #[test]
+    fn test_configure1() {
+        use super::{configure, parse_noc, Value};
+        use std::collections::HashMap;
+
+        let noc = r#"user admin {uid 1000}"#;
+        let expected =
+            Value::Table(HashMap::new()).insert(vec!["user", "admin", "uid"], Value::from("1000"));
+        assert_eq!(parse_noc::<Value>(noc), Ok(expected));
+
+        let nos = r#"
+name "Nereon test"
+authors ["John Doe <john@doe.me>"]
+license Free
+version "0.0.1"
+option config {
+    env nereon_config
+    usage "Config file"
+    key []
+}
+option user {
+    short u
+    key [user, admin, uid]
+    usage "User's UID"
+    hint USER
+}
+option permissions {
+    env nereon_permissions
+    key [user, admin, permissions]
+    usage "Permissions for user"
+}"#;
+
+        // create an example NOC config file
+        ::std::fs::write("/tmp/nereon_test", "user admin permissions read").unwrap();
+
+        ::std::env::set_var("nereon_config", "/tmp/nereon_test");
+        ::std::env::set_var("nereon_permissions", "read,write");
+        let expected = parse_noc::<Value>(
+            r#"
+            user admin uid 100
+            user admin permissions "read,write""#,
+        ).unwrap();
+        assert_eq!(
+            configure::<Value, _, _>(nos, &["program", "-u", "100"]),
+            Ok(expected)
+        );
+        ::std::fs::remove_file("/tmp/nereon_test").unwrap();
+    }
+}

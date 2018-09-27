@@ -1,0 +1,9 @@
+[package]
+name = "derive-test"
+version = "0.1.0"
+authors = ["John Hedges <john@drystone.co.uk>"]
+publish = false
+
+[dependencies]
+nereon = { path = ".." }
+nereon_derive = { path = "../derive" }

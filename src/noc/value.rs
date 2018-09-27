@@ -112,17 +112,17 @@ impl Value {
     /// # use std::collections::HashMap;
     /// # use nereon::{Value, parse_noc};
     /// let mut v = Value::Table(HashMap::new());
-    /// assert_eq!(v, parse_noc("").unwrap());
+    /// assert_eq!(v, parse_noc::<Value>("").unwrap());
     /// v = v.insert(vec!["forename"], Value::from("John"));
-    /// assert_eq!(v, parse_noc("forename John").unwrap());
+    /// assert_eq!(v, parse_noc::<Value>("forename John").unwrap());
     /// v = v.insert(vec!["surname"], Value::from("Doe"));
-    /// assert_eq!(v, parse_noc("forename John, surname Doe").unwrap());
+    /// assert_eq!(v, parse_noc::<Value>("forename John, surname Doe").unwrap());
     /// v = v.insert(vec!["forename"], Value::from(vec!["John", "Reginald"]));
-    /// assert_eq!(v, parse_noc("forename [John, Reginald], surname Doe").unwrap());
+    /// assert_eq!(v, parse_noc::<Value>("forename [John, Reginald], surname Doe").unwrap());
     /// v = v.insert(vec!["forename", "first"], Value::from("John"));
-    /// assert_eq!(v, parse_noc("forename { first John }, surname Doe").unwrap());
+    /// assert_eq!(v, parse_noc::<Value>("forename { first John }, surname Doe").unwrap());
     /// v = v.insert(vec!["forename", "middle"], Value::from("Reginald"));
-    /// assert_eq!(v, parse_noc(
+    /// assert_eq!(v, parse_noc::<Value>(
     ///     "forename { first John, middle Reginald }, surname Doe").unwrap());
     /// ```
     pub fn insert<'a, I, V>(self, keys: I, value: V) -> Self
@@ -173,8 +173,8 @@ impl Value {
     /// # extern crate nereon;
     /// # use std::collections::HashMap;
     /// # use nereon::{Value, parse_noc};
-    /// assert_eq!(parse_noc("number 42").and_then(|v| v.get("number")), Ok("42".to_owned()));
-    /// assert_eq!(parse_noc("number 42").and_then(|v| v.get("number")), Ok(42));
+    /// assert_eq!(parse_noc::<Value>("number 42").and_then(|v| v.get("number")), Ok("42".to_owned()));
+    /// assert_eq!(parse_noc::<Value>("number 42").and_then(|v| v.get("number")), Ok(42));
     /// ```
     pub fn get<T>(&self, key: &str) -> Result<T, String>
     where
@@ -191,7 +191,7 @@ impl Value {
     /// # extern crate nereon;
     /// # use std::collections::HashMap;
     /// # use nereon::{Value, parse_noc};
-    /// let v = parse_noc("number 42").unwrap();
+    /// let v = parse_noc::<Value>("number 42").unwrap();
     /// assert_eq!(v.get_value("number"), Some(&Value::String("42".to_owned())));
     /// ```
     pub fn get_value<'a>(&'a self, key: &str) -> Option<&'a Value> {
@@ -209,10 +209,10 @@ impl Value {
     /// # use std::collections::HashMap;
     /// # use nereon::{Value, parse_noc};
     /// assert_eq!(
-    ///     parse_noc("a { b { c 42 } }")
+    ///     parse_noc::<Value>("a { b { c 42 } }")
     ///         .and_then(|v| v.lookup(vec!["a", "b", "c"])),
     ///     Ok("42".to_owned()));
-    /// assert_eq!(parse_noc("a { b { c 42 } }")
+    /// assert_eq!(parse_noc::<Value>("a { b { c 42 } }")
     ///    .and_then(|v| v.lookup(vec!["a", "b", "c"])), Ok(42));
     /// ```
     pub fn lookup<'a, I, T>(&'a self, keys: I) -> Result<T, String>
@@ -231,7 +231,7 @@ impl Value {
     /// # extern crate nereon;
     /// # use std::collections::HashMap;
     /// # use nereon::{Value, parse_noc};
-    /// let v = parse_noc("a { b { c 42 } }").unwrap();
+    /// let v = parse_noc::<Value>("a { b { c 42 } }").unwrap();
     /// assert_eq!(
     ///     v.lookup_value(vec!["a", "b", "c"]),
     ///     Some(&Value::String("42".to_owned())));
@@ -395,8 +395,8 @@ impl Value {
     /// # Example
     /// ```
     /// # extern crate nereon;
-    /// # use nereon::parse_noc;
-    /// assert_eq!(parse_noc(r#"
+    /// # use nereon::{parse_noc, Value};
+    /// assert_eq!(parse_noc::<Value>(r#"
     ///     forenames [John, Reginald]
     ///     surname Doe
     /// "#).map(|v| v.as_noc_string()),
@@ -412,8 +412,7 @@ impl Value {
                         Value::Table(_) => format!("{{{}}}", v.as_noc_string()),
                         Value::List(_) => format!("[{}]", v.as_noc_string()),
                         Value::String(_) => v.as_noc_string(),
-                    })
-                    .collect::<Vec<_>>();
+                    }).collect::<Vec<_>>();
                 values.join(",")
             }
             Value::Table(m) => {
@@ -423,8 +422,7 @@ impl Value {
                         Value::Table(_) => format!("\"{}\" {{{}}}", k, v.as_noc_string()),
                         Value::List(_) => format!("\"{}\" [{}]", k, v.as_noc_string()),
                         Value::String(_) => format!("\"{}\" {}", k, v.as_noc_string()),
-                    })
-                    .collect::<Vec<_>>();
+                    }).collect::<Vec<_>>();
                 values.join(",")
             }
         }
@@ -435,8 +433,8 @@ impl Value {
     /// # Example
     /// ```
     /// # extern crate nereon;
-    /// # use nereon::parse_noc;
-    /// assert_eq!(parse_noc("forenames [John, Reginald], surname Doe")
+    /// # use nereon::{parse_noc, Value};
+    /// assert_eq!(parse_noc::<Value>("forenames [John, Reginald], surname Doe")
     ///         .map(|v| v.as_noc_string_pretty()),
     ///     Ok("\"forenames\" [\n\t\"John\"\n\t\"Reginald\"\n]\n\"surname\" \"Doe\"".to_owned()));
     /// ```
@@ -457,8 +455,7 @@ impl Value {
                         Value::List(_) => format!("{}[\n{}\n{}]", tabs, s, tabs),
                         Value::String(_) => format!("{}{}", tabs, s),
                     }
-                })
-                .collect::<Vec<_>>()
+                }).collect::<Vec<_>>()
                 .join("\n"),
             Value::Table(m) => BTreeMap::from_iter(m.iter()) // sort
                 .iter()
@@ -528,6 +525,22 @@ from_value_for!(i64);
 from_value_for!(f32);
 from_value_for!(f64);
 
+impl FromValue for Value {
+    fn from_value(value: &Value) -> Result<Self, String> {
+        Ok(match value {
+            Value::String(s) => Value::String(s.to_owned()),
+            Value::List(v) => {
+                Value::List(v.iter().map(|v| Value::from_value(&v).unwrap()).collect())
+            }
+            Value::Table(m) => Value::Table(
+                m.iter()
+                    .map(|(k, v)| (k.to_owned(), Value::from_value(&v).unwrap()))
+                    .collect(),
+            ),
+        })
+    }
+}
+
 impl FromValue for String {
     fn from_value(value: &Value) -> Result<Self, String> {
         value
@@ -589,8 +602,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{FromValue, Value};
     use super::super::parse_noc;
+    use super::{FromValue, Value};
     use std::collections::HashMap;
 
     #[test]
@@ -622,7 +635,7 @@ mod tests {
 
     #[test]
     fn test_value_get() {
-        let value = parse_noc(r#"a a, b 1, c c, e {}, f []"#).unwrap();
+        let value = parse_noc::<Value>(r#"a a, b 1, c c, e {}, f []"#).unwrap();
         assert_eq!(value.get("a"), Ok("a".to_owned()));
         assert_eq!(value.get("a"), Ok(Some("a".to_owned())));
         assert_eq!(value.get("b"), Ok(1u8));
@@ -647,7 +660,7 @@ mod tests {
 
     #[test]
     fn test_value_get_value() {
-        let value = parse_noc(r#"a a, b b, c c, e {}, f []"#).unwrap();
+        let value = parse_noc::<Value>(r#"a a, b b, c c, e {}, f []"#).unwrap();
         assert_eq!(value.get_value("a"), Some(&Value::String("a".to_owned())));
         assert_eq!(value.get_value("b"), Some(&Value::String("b".to_owned())));
         assert_eq!(value.get_value("c"), Some(&Value::String("c".to_owned())));
@@ -677,9 +690,9 @@ mod tests {
 
     #[test]
     fn test_value_to_noc_string() {
-        let v = parse_noc(r#"a a, b b, c c, e {a a, b b}, f [a,b,c,d]"#).unwrap();
+        let v = parse_noc::<Value>(r#"a a, b b, c c, e {a a, b b}, f [a,b,c,d]"#).unwrap();
         let noc = v.as_noc_string();
-        assert_eq!(v, parse_noc(&noc).unwrap());
+        assert_eq!(v, parse_noc::<Value>(&noc).unwrap());
         assert_eq!(
             v.as_noc_string_pretty(),
             r#""a" "a"

@@ -12,5 +12,8 @@ syn = "0.15"
 quote = "0.6"
 proc-macro2 = "0.4"
 
+[dev-dependencies]
+nereon = "0.2"
+
 [lib]
 proc-macro = true

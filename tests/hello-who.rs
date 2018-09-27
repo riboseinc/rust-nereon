@@ -27,7 +27,7 @@ extern crate toml;
 #[macro_use]
 extern crate lazy_static;
 
-use nereon::{configure, FromValue, Nos};
+use nereon::{configure, Value};
 use std::env;
 
 static CARGO: &str = include_str!("../Cargo.toml");
@@ -68,23 +68,21 @@ option who {{
 
 #[test]
 fn test_nos_option() {
-    use nereon::parse_noc;
-
-    let config = configure(
-        &Nos::from_value(&parse_noc(&NOS).unwrap()).unwrap(),
+    let config = configure::<Value, _, _>(
+        &NOS,
         &vec!["program", "--unknown", "-c", "tests/hello-who.conf"],
     );
     assert!(config.is_err());
 
-    let config = configure(
-        &Nos::from_value(&parse_noc(&NOS).unwrap()).unwrap(),
+    let config = configure::<Value, _, _>(
+        &NOS,
         &vec!["program", "-w"],
     );
     assert!(config.is_err());
 
     env::set_var("TEST_WHO", "guess who?");
-    let config = configure(
-        &Nos::from_value(&parse_noc(&NOS).unwrap()).unwrap(),
+    let config = configure::<Value, _, _>(
+        &NOS,
         &vec!["program", "-w", "Arg", "--config", "tests/hello-who.conf"],
     );
     assert!(config.is_ok());

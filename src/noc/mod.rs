@@ -58,10 +58,8 @@ lazy_static! {
     };
 }
 
-/// Configuration written in
-/// [NOC](https://github.com/riboseinc/nereon-syntax) syntax can be
-/// parsed into a [Value](enum.Value.html) using the
-/// [parse_noc](fn.parse_noc.html) function.
+/// Parse a NOC string and convert into any type that implements
+/// [`FromValue`](trait.FromValue.html)
 ///
 /// ```
 /// extern crate nereon;
@@ -80,7 +78,10 @@ lazy_static! {
 ///
 /// assert_eq!(parse_noc(noc), Ok(expected));
 /// ```
-pub fn parse_noc(input: &str) -> Result<Value, String> {
+pub fn parse_noc<T>(input: &str) -> Result<T, String>
+where
+    T: FromValue,
+{
     NocParser::parse(Rule::root, input)
         .map_err(|e| format!("{:?}", e))
         .and_then(|mut pairs| {
@@ -91,7 +92,7 @@ pub fn parse_noc(input: &str) -> Result<Value, String> {
                     args: Vec::new(),
                 },
             )
-        })
+        }).and_then(|v| T::from_value(&v))
 }
 
 fn mk_value<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, String> {
@@ -123,8 +124,7 @@ fn mk_dict<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, Str
                                         keys
                                     })
                                 })
-                            })
-                            .map(|keys| dict.insert(keys.iter().map(|s| s.as_ref()), value))
+                            }).map(|keys| dict.insert(keys.iter().map(|s| s.as_ref()), value))
                     })
                 }
                 Rule::template => {
@@ -198,8 +198,7 @@ fn mk_quoted(quoted: Pair<Rule>) -> Result<Value, String> {
                 })
             }
             _ => unreachable!(),
-        })
-        .map(Value::String)
+        }).map(Value::String)
 }
 
 fn mk_template<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) {
@@ -254,18 +253,21 @@ mod test {
 
     #[test]
     fn test_empty() {
-        assert_eq!(parse_noc("").unwrap(), Value::Table(HashMap::new()));
+        assert_eq!(
+            parse_noc::<Value>("").unwrap(),
+            Value::Table(HashMap::new())
+        );
     }
 
     #[test]
     fn test_key_no_value() {
-        assert!(parse_noc("fail").is_err());
+        assert!(parse_noc::<Value>("fail").is_err());
     }
 
     #[test]
     fn test_key_value() {
         assert_eq!(
-            parse_noc("key value").unwrap(),
+            parse_noc::<Value>("key value").unwrap(),
             Value::Table(HashMap::from_iter(vec![(
                 "key".to_owned(),
                 Value::String("value".to_owned()),
@@ -276,7 +278,7 @@ mod test {
     #[test]
     fn test_nested_dict() {
         assert_eq!(
-            parse_noc("key { key value }").unwrap(),
+            parse_noc::<Value>("key { key value }").unwrap(),
             Value::Table(HashMap::from_iter(vec![(
                 "key".to_owned(),
                 Value::Table(HashMap::from_iter(vec![(
@@ -290,7 +292,7 @@ mod test {
     #[test]
     fn test_sep_key_value_sep() {
         assert_eq!(
-            parse_noc(",,,,key value,,,,").unwrap(),
+            parse_noc::<Value>(",,,,key value,,,,").unwrap(),
             Value::Table(HashMap::from_iter(vec![(
                 "key".to_owned(),
                 Value::String("value".to_owned()),
@@ -301,7 +303,7 @@ mod test {
     #[test]
     fn test_duplicate_key() {
         assert_eq!(
-            parse_noc("key value,key value1").unwrap(),
+            parse_noc::<Value>("key value,key value1").unwrap(),
             Value::Table(HashMap::from_iter(vec![(
                 "key".to_owned(),
                 Value::String("value1".to_owned()),
@@ -312,7 +314,7 @@ mod test {
     #[test]
     fn test_multi_kv() {
         assert_eq!(
-            parse_noc("key value\nkey2 value2").unwrap(),
+            parse_noc::<Value>("key value\nkey2 value2").unwrap(),
             Value::Table(HashMap::from_iter(vec![
                 ("key".to_owned(), Value::String("value".to_owned())),
                 ("key2".to_owned(), Value::String("value2".to_owned())),
@@ -324,17 +326,17 @@ mod test {
     fn test_quoted_kv() {
         let a = r#""key\n1" "value\n1""#;
         let b = "\"key\n1\" \"value\n1\"";
-        assert_eq!(parse_noc(a).unwrap().as_noc_string(), b);
+        assert_eq!(parse_noc::<Value>(a).unwrap().as_noc_string(), b);
     }
 
     #[test]
     fn test_bad_escape() {
-        assert!(parse_noc(r#""key\n1" "value\1""#).is_err());
+        assert!(parse_noc::<Value>(r#""key\n1" "value\1""#).is_err());
     }
 
     #[test]
     fn test_unalanced() {
-        assert!(parse_noc("test {]").is_err());
+        assert!(parse_noc::<Value>("test {]").is_err());
     }
 
     #[test]
@@ -345,9 +347,9 @@ mod test {
             (r#"a "\u0020""#, r#""a" " ""#),
             (r#"a "\U00000020""#, r#""a" " ""#),
         ].iter()
-            .for_each(|(a, b)| {
-                assert_eq!(&parse_noc(a).unwrap().as_noc_string(), b);
-            });
+        .for_each(|(a, b)| {
+            assert_eq!(&parse_noc::<Value>(a).unwrap().as_noc_string(), b);
+        });
     }
 
     #[test]
@@ -358,7 +360,7 @@ mod test {
             r#"a "\u020""#,
             r#"a "\U00000g0""#,
         ].iter()
-            .for_each(|a| assert!(&parse_noc(a).is_err()));
+        .for_each(|a| assert!(&parse_noc::<Value>(a).is_err()));
     }
 
     #[test]
@@ -373,9 +375,9 @@ mod test {
             ("a [1,,2,,]", r#""a" ["1","2"]"#),
             ("a [{b [1,2]}]", r#""a" [{"b" ["1","2"]}]"#),
         ].iter()
-            .for_each(|(a, b)| {
-                assert_eq!(&parse_noc(a).unwrap().as_noc_string(), b);
-            });
+        .for_each(|(a, b)| {
+            assert_eq!(&parse_noc::<Value>(a).unwrap().as_noc_string(), b);
+        });
     }
 
     #[test]
@@ -383,7 +385,7 @@ mod test {
         let a = r#"let(template, value),
  key apply(template)"#;
         assert_eq!(
-            parse_noc(a).unwrap(),
+            parse_noc::<Value>(a).unwrap(),
             Value::Table(HashMap::from_iter(vec![(
                 "key".to_owned(),
                 Value::String("value".to_owned()),
@@ -396,7 +398,7 @@ mod test {
         let a = r#"let(template, [value])
                    key apply(template)"#;
         assert_eq!(
-            parse_noc(a).unwrap(),
+            parse_noc::<Value>(a).unwrap(),
             Value::Table(HashMap::from_iter(vec![(
                 "key".to_owned(),
                 Value::List(vec![Value::String("value".to_owned())]),
@@ -409,7 +411,7 @@ mod test {
         let a = r#"let(template, arg(0))
                    key apply(template, [value])"#;
         assert_eq!(
-            parse_noc(a).unwrap(),
+            parse_noc::<Value>(a).unwrap(),
             Value::Table(HashMap::from_iter(vec![(
                 "key".to_owned(),
                 Value::List(vec![Value::String("value".to_owned())]),
@@ -434,8 +436,8 @@ mod test {
             ("a 10 ^ (2+1)", r#""a" "1000""#),
             ("a 10 ^ -1", r#""a" "0.1""#),
         ].iter()
-            .for_each(|(a, b)| {
-                assert_eq!(&parse_noc(a).unwrap().as_noc_string(), b);
-            });
+        .for_each(|(a, b)| {
+            assert_eq!(&parse_noc::<Value>(a).unwrap().as_noc_string(), b);
+        });
     }
 }

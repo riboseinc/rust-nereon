@@ -43,14 +43,14 @@
 //!     .insert(vec!["user", "admin", "uid"], Value::from("1000"))
 //!     .insert(vec!["user", "admin", "name"], Value::from("John Doe"));
 //!
-//! assert_eq!(parse_noc(noc), Ok(expected));
+//! assert_eq!(parse_noc::<Value>(noc), Ok(expected));
 //! ```
 //!
 //! A Nereon [`Value`](enum.Value.html) can be converted back into a NOC string:
 //!
 //! ```
 //! extern crate nereon;
-//! use nereon::parse_noc;
+//! use nereon::{parse_noc, Value};
 //!
 //! let noc = r#"
 //!     user admin {
@@ -61,7 +61,7 @@
 //! let expected = r#""user" {"admin" {"name" "John Doe","uid" "1010"}}"#
 //!     .to_owned();
 //!
-//! assert_eq!(parse_noc(noc).map(|v| v.as_noc_string()), Ok(expected));
+//! assert_eq!(parse_noc::<Value>(noc).map(|v| v.as_noc_string()), Ok(expected));
 //! ```
 //!
 //! By using the [`nereon-derive`](../nereon_derive/index.html) crate, a
@@ -87,7 +87,7 @@
 //! "#;
 //!
 //! let expected = User { uid: 1010, name: "John Doe".to_owned() };
-//! let user = parse_noc(noc).and_then(|v| User::from_value(&v));
+//! let user = parse_noc::<Value>(noc).and_then(|v| User::from_value(&v));
 //! assert_eq!(user, Ok(expected));
 //! # }
 //! ```
@@ -101,7 +101,7 @@
 //!
 //! ```
 //! # extern crate nereon;
-//! use nereon::{configure, parse_noc, Value, Nos, FromValue};
+//! use nereon::{configure, parse_noc, Value, FromValue};
 //! use std::collections::HashMap;
 //!
 //! let nos = r#"
@@ -131,13 +131,12 @@
 //! ::std::env::set_var("nereon_config", "/tmp/nereon_test");
 //! ::std::env::set_var("nereon_permissions", "read,write");
 //!
-//! let expected = parse_noc(r#"
+//! let expected = parse_noc::<Value>(r#"
 //!     user admin uid 100
 //!     user admin permissions "read,write""#
 //! ).unwrap();
 //!
-//! let nos = Nos::from_value(&parse_noc(nos).unwrap()).unwrap();
-//! assert_eq!(configure(&nos, &["program", "-u", "100"]), Ok(expected));
+//! assert_eq!(configure::<Value, _, _>(&nos, &["program", "-u", "100"]), Ok(expected));
 //!
 //! # ::std::fs::remove_file("/tmp/nereon_test").unwrap();
 //! ```
@@ -161,11 +160,9 @@ use std::fs::File;
 use std::io::Read;
 
 mod nos;
-
-pub use nos::{Nos, UserOption};
+use nos::{Nos, UserOption};
 
 mod noc;
-
 pub use noc::{parse_noc, FromValue, Value};
 
 /// Parse command-line options into a [`Value`](enum.Value.html).
@@ -175,7 +172,7 @@ pub use noc::{parse_noc, FromValue, Value};
 /// ```
 /// # extern crate nereon;
 /// use std::collections::HashMap;
-/// use nereon::{Nos, Value, parse_noc, configure, FromValue};
+/// use nereon::{Value, parse_noc, configure, FromValue};
 /// let nos = r#"
 ///     name "Nereon test"
 ///     authors ["John Doe <john@doe.me>"]
@@ -192,17 +189,15 @@ pub use noc::{parse_noc, FromValue, Value};
 ///     }"#;
 /// let expected = Value::Table(HashMap::new())
 ///     .insert(vec!["username"], Value::from("root"));
-/// let nos = Nos::from_value(&parse_noc(nos).unwrap()).unwrap();
-/// assert_eq!(configure(&nos, &["program", "-u", "root"]), Ok(expected));
+/// assert_eq!(configure::<Value, _, _>(nos, &["program", "-u", "root"]), Ok(expected));
 /// ```
-pub fn configure<'a, U, I>(nos: &Nos, args: U) -> Result<Value, String>
+pub fn configure<T, U, I>(nos: &str, args: U) -> Result<T, String>
 where
     U: IntoIterator<Item = I>,
     I: Into<OsString> + Clone,
+    T: FromValue,
 {
-    if nos.option.is_none() {
-        return Ok(Value::Table(HashMap::new()));
-    }
+    let nos = parse_noc::<Nos>(nos)?;
 
     let options = nos.option.as_ref().unwrap();
 
@@ -253,7 +248,7 @@ where
         config = File::open(&n)
             .and_then(|ref mut f| f.read_to_string(&mut buffer))
             .map_err(|e| format!("{:?}", e))
-            .and_then(|_| parse_noc(&buffer))
+            .and_then(|_| parse_noc::<Value>(&buffer))
             .and_then(|v| {
                 Ok({
                     let keys = key_to_strs(&options.get("config").unwrap());
@@ -269,7 +264,7 @@ where
                 option
                     .env
                     .as_ref()
-                    .and_then(|e| env::var_os(e))
+                    .and_then(env::var_os)
                     .map(Value::from)
                     .or_else(|| {
                         config
@@ -289,14 +284,14 @@ where
         }
         config
     });
-    Ok(config)
+    T::from_value(&config)
 }
 
 #[cfg(test)]
 mod tests {
     #[test]
     fn test_configure() {
-        use super::{configure, parse_noc, FromValue, Nos, Value};
+        use super::{configure, Value};
         use std::collections::HashMap;
         let nos = r#"
 name "Nereon test"
@@ -313,19 +308,18 @@ option username {
     key [username]
 }"#;
         let expected = Value::Table(HashMap::new()).insert(vec!["username"], Value::from("root"));
-        let nos = Nos::from_value(&parse_noc(nos).unwrap()).unwrap();
-        assert_eq!(configure(&nos, &["program", "-u", "root"]), Ok(expected));
+        assert_eq!(configure::<Value, _, _>(nos, &["program", "-u", "root"]), Ok(expected));
     }
 
     #[test]
     fn test_configure1() {
-        use super::{configure, parse_noc, FromValue, Nos, Value};
+        use super::{configure, parse_noc, Value};
         use std::collections::HashMap;
 
         let noc = r#"user admin {uid 1000}"#;
         let expected =
             Value::Table(HashMap::new()).insert(vec!["user", "admin", "uid"], Value::from("1000"));
-        assert_eq!(parse_noc(noc), Ok(expected));
+        assert_eq!(parse_noc::<Value>(noc), Ok(expected));
 
         let nos = r#"
 name "Nereon test"
@@ -354,13 +348,12 @@ option permissions {
 
         ::std::env::set_var("nereon_config", "/tmp/nereon_test");
         ::std::env::set_var("nereon_permissions", "read,write");
-        let expected = parse_noc(
+        let expected = parse_noc::<Value>(
             r#"
             user admin uid 100
             user admin permissions "read,write""#,
         ).unwrap();
-        let nos = Nos::from_value(&parse_noc(nos).unwrap()).unwrap();
-        assert_eq!(configure(&nos, &["program", "-u", "100"]), Ok(expected));
+        assert_eq!(configure::<Value, _, _>(nos, &["program", "-u", "100"]), Ok(expected));
         ::std::fs::remove_file("/tmp/nereon_test").unwrap();
     }
 }

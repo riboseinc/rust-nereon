@@ -22,12 +22,15 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 extern crate nereon;
+#[macro_use]
+extern crate nereon_derive;
+
 extern crate toml;
 
 #[macro_use]
 extern crate lazy_static;
 
-use nereon::{configure, Value};
+use nereon::{configure, FromValue, Value};
 use std::env;
 
 static CARGO: &str = include_str!("../Cargo.toml");
@@ -49,12 +52,20 @@ option config {{
     usage "Config file"
     key []
 }}
+option greeting {{
+    short g
+    long greeting
+    default Hello
+    env GREETING
+    flags [takesvalue]
+    usage "How to greet"
+    key [greeting]
+}}
 option who {{
     short w
     long who
-    env TEST_WHO
-    default world
     hint NAME
+    flags [takesvalue, required]
     usage "Entity to greet"
     key [who]
 }}
@@ -66,24 +77,144 @@ option who {{
     };
 }
 
+#[derive(FromValue, Debug, PartialEq)]
+struct Config {
+    greeting: String,
+    who: String,
+}
+
 #[test]
-fn test_nos_option() {
-    let config = configure::<Value, _, _>(
-        &NOS,
-        &vec!["program", "--unknown", "-c", "tests/hello-who.conf"],
-    );
+fn test_unknown_arg() {
+    let config = configure::<Config, _, _>(&NOS, &vec!["program", "-u"]);
+    assert!(config.is_err());
+}
+
+#[test]
+fn test_no_possible_value() {
+    let config = configure::<Config, _, _>(&NOS, &vec!["program"]);
     assert!(config.is_err());
 
-    let config = configure::<Value, _, _>(
-        &NOS,
-        &vec!["program", "-w"],
-    );
+    let config = configure::<Config, _, _>(&NOS, &vec!["program", "-w"]);
     assert!(config.is_err());
+}
 
-    env::set_var("TEST_WHO", "guess who?");
-    let config = configure::<Value, _, _>(
-        &NOS,
-        &vec!["program", "-w", "Arg", "--config", "tests/hello-who.conf"],
+#[test]
+fn test_overrides() {
+    // these tests are merged as env vars are available across threads
+
+    // test default greeting
+    env::remove_var("GREETING");
+    let config = configure::<Config, _, _>(&NOS, &vec!["program", "-w", "World"]);
+    assert_eq!(
+        config,
+        Ok(Config {
+            greeting: "Hello".to_owned(),
+            who: "World".to_owned()
+        })
     );
-    assert!(config.is_ok());
+
+    // ensure config overrides default
+    env::remove_var("GREETING");
+    let config = configure::<Config, _, _>(
+        &NOS,
+        &vec!["program", "-c", "tests/hello-who.conf", "-w", "World"],
+    );
+    assert_eq!(
+        config,
+        Ok(Config {
+            greeting: "olá".to_owned(),
+            who: "World".to_owned()
+        })
+    );
+
+    // ensure explicit overrides default
+    env::remove_var("GREETING");
+    let config = configure::<Config, _, _>(
+        &NOS,
+        &vec![
+            "program",
+            "-c",
+            "tests/hello-who.conf",
+            "-w",
+            "World",
+            "-g",
+            "Welcome",
+        ],
+    );
+    assert_eq!(
+        config,
+        Ok(Config {
+            greeting: "Welcome".to_owned(),
+            who: "World".to_owned()
+        })
+    );
+
+    // ensure env overrides default
+    env::set_var("GREETING", "Chow");
+    let config = configure::<Config, _, _>(&NOS, &vec!["program", "-w", "World"]);
+    assert_eq!(
+        config,
+        Ok(Config {
+            greeting: "Chow".to_owned(),
+            who: "World".to_owned()
+        })
+    );
+
+    // ensure env overrides config
+    env::set_var("GREETING", "Chow");
+    let config = configure::<Config, _, _>(
+        &NOS,
+        &vec!["program", "-c", "tests/hello-who.conf", "-w", "World"],
+    );
+    assert_eq!(
+        config,
+        Ok(Config {
+            greeting: "Chow".to_owned(),
+            who: "World".to_owned()
+        })
+    );
+
+    // ensure explicit overrides config
+    env::remove_var("GREETING");
+    let config = configure::<Config, _, _>(
+        &NOS,
+        &vec![
+            "program",
+            "-c",
+            "tests/hello-who.conf",
+            "-w",
+            "World",
+            "-g",
+            "Welcome",
+        ],
+    );
+    assert_eq!(
+        config,
+        Ok(Config {
+            greeting: "Welcome".to_owned(),
+            who: "World".to_owned()
+        })
+    );
+
+    // ensure explicit overrides env
+    env::set_var("GREETING", "Chow");
+    let config = configure::<Config, _, _>(
+        &NOS,
+        &vec![
+            "program",
+            "-c",
+            "tests/hello-who.conf",
+            "-w",
+            "World",
+            "-g",
+            "Welcome",
+        ],
+    );
+    assert_eq!(
+        config,
+        Ok(Config {
+            greeting: "Welcome".to_owned(),
+            who: "World".to_owned()
+        })
+    );
 }

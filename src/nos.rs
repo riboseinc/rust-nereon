@@ -32,6 +32,7 @@ pub struct Command {
 
 #[derive(FromValue, Debug, PartialEq)]
 pub struct UserOption {
+    pub flags: Option<Vec<String>>,
     pub short: Option<String>,
     pub long: Option<String>,
     pub env: Option<String>,

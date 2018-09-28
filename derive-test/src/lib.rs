@@ -206,4 +206,89 @@ mod tests {
             })
         );
     }
+
+    #[test]
+    fn test_enum() {
+        #[derive(Debug, FromValue, PartialEq)]
+        enum AA {
+            A,
+            B,
+        };
+        #[derive(Debug, FromValue, PartialEq)]
+        struct B {
+            a: AA,
+        }
+        assert_eq!(parse_noc::<B>("a a"), Ok(B { a: AA::A }));
+    }
+
+    #[test]
+    fn test_enum_with_named_variant() {
+        impl FromValue for AA {
+            fn from_value(v: Value) -> Result<Self, String> {
+                #[inline]
+                fn convert<T: FromValue>(v: Value) -> Result<T, String> {
+                    T::from_value(v)
+                }
+                #[inline]
+                fn convert_no_value<T: FromValue>() -> Result<T, String> {
+                    T::from_no_value()
+                }
+                let variant = match v {
+                    Value::String(ref s) => Ok(s.clone()),
+                    Value::Table(ref t) if t.len() == 1 => Ok(t.iter().next().unwrap().0.clone()),
+                    _ => Err(format!(
+                        "Cannot convert to {}: not String or single value Table",
+                        stringify!(AA)
+                    )),
+                }?;
+                match variant.as_ref() {
+                    "a" => Ok(AA::A),
+                    "b" => {
+                        use std::collections::HashMap;
+                        let mut v:HashMap<String, Value> = HashMap::from_value(v)
+                            .map(|mut v: HashMap<String, Value>| v.remove("b").unwrap())
+                            .and_then(|v| {
+                                HashMap::from_value(v).map_err(|_| {
+                                    format!(
+                                        "Cannot convert to {}: \"{}\" is not a Table",
+                                        stringify!(AA::B),
+                                        stringify!("b")
+                                    )
+                                })
+                            })?;
+                        Ok(AA::B {
+                            b: v.remove(stringify!(b)).map_or_else(
+                                || {
+                                    convert_no_value().map_err(|e| {
+                                        format!(
+                                            "Cannot convert to {}. Field {}: {}",
+                                            stringify!("# name :: vname"),
+                                            stringify!(b),
+                                            e
+                                        )
+                                    })
+                                },
+                                convert,
+                            )?,
+                        })
+                    }
+                    _ => Err(format!(
+                        "Cannot convert to {}: no such variant \"{}\"",
+                        stringify!(AA),
+                        variant
+                    )),
+                }
+            }
+        }
+        #[derive(Debug, PartialEq)]
+        enum AA {
+            A,
+            B { b: u32 },
+        };
+        #[derive(Debug, FromValue, PartialEq)]
+        struct B {
+            a: AA,
+        }
+        assert_eq!(parse_noc::<B>("a a"), Ok(B { a: AA::A }));
+    }
 }

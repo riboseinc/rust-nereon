@@ -191,6 +191,11 @@ pub use noc::{parse_noc, FromValue, Value};
 ///     .insert(vec!["username"], Value::from("root"));
 /// assert_eq!(configure::<Value, _, _>(nos, &["program", "-u", "root"]), Ok(expected));
 /// ```
+/// # Panics
+///
+/// `configure` panics if `nos` string is not valid NOS. This is
+/// considered a programming error: the NOS is asserted to be valid
+/// and considered a part of the program source.
 pub fn configure<T, U: IntoIterator<Item = I>, I: Into<OsString> + Clone>(
     nos: &str,
     args: U,
@@ -200,7 +205,7 @@ where
 {
     let nos = parse_noc::<Nos>(nos)?;
 
-    let options = nos.option.as_ref().unwrap();
+    let options = nos.option.as_ref().expect("Invalid NOS");
 
     // get command line options
     let mut clap_app = clap::App::new(nos.name.to_owned())
@@ -212,7 +217,17 @@ where
     }
 
     for (n, o) in options.iter() {
-        let mut arg = clap::Arg::with_name(n.as_str()).required(true);
+        let mut arg = clap::Arg::with_name(n.as_str());
+        if let Some(ref flags) = o.flags {
+            for f in flags {
+                match f.as_ref() {
+                    "required" => arg = arg.required(true),
+                    "multiple" => arg = arg.multiple(true),
+                    "takesvalue" => arg = arg.takes_value(true),
+                    _ => panic!("No such argument flag ({})", f),
+                }
+            }
+        }
         if let Some(ref s) = o.short {
             arg = arg.short(s);
         }
@@ -221,9 +236,6 @@ where
         }
         if let Some(ref d) = o.default {
             arg = arg.default_value(d);
-        }
-        if o.default_arg.is_none() {
-            arg = arg.takes_value(true);
         }
         if let Some(ref e) = o.env {
             arg = arg.env(e);

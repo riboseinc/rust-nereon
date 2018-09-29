@@ -25,7 +25,6 @@
 //! another type using the [FromValue](../nereon/trait.FromValue.html)
 //! trait. See the [`nereon`](../nereon/index.html) crate for
 //! example usage.
-
 extern crate syn;
 #[macro_use]
 extern crate quote;
@@ -41,129 +40,130 @@ pub fn derive_from_value(input: TokenStream) -> TokenStream {
     let ast = syn::parse::<syn::DeriveInput>(input).unwrap();
     let name = &ast.ident;
     let body = match ast.data {
-        syn::Data::Struct(ref s) => impl_derive_from_value_struct(&name, s),
-        syn::Data::Enum(ref e) => impl_derive_from_value_enum(&name, e),
+        syn::Data::Struct(ref s) => body_from_from_value_struct(&name, s),
+        syn::Data::Enum(ref e) => body_from_from_value_enum(&name, e),
         _ => unreachable!(),
     };
     let gen = quote! {
         impl FromValue for #name {
             fn from_value(mut v: Value) -> Result<Self, String> {
-                #[inline]
-                fn convert<T: FromValue>(v: Value) -> Result<T, String> {
-                    T::from_value(v)
-                }
-                #[inline]
-                fn convert_no_value<T: FromValue>() -> Result<T, String> {
-                    T::from_no_value()
-                }
                 #body
             }
         }
     };
-    println!("{}", gen);
     gen.into()
 }
-fn impl_derive_from_value_struct(name: &syn::Ident, data: &syn::DataStruct) -> TokenStream2 {
+
+fn body_from_from_value_struct(name: &syn::Ident, data: &syn::DataStruct) -> TokenStream2 {
     match data.fields {
-        syn::Fields::Named(_) => impl_derive_from_value_struct_named(name, &data.fields),
-        syn::Fields::Unnamed(_) => impl_derive_from_value_struct_unnamed(name, &data.fields),
-        syn::Fields::Unit => impl_derive_from_value_struct_unit(name),
+        syn::Fields::Named(_) => body_from_from_value_normal_struct(name, &data.fields),
+        syn::Fields::Unnamed(_) => body_from_from_value_tuple_struct(name, &data.fields),
+        syn::Fields::Unit => unreachable!(),
     }
 }
 
-fn impl_derive_from_value_struct_named(name: &syn::Ident, fields: &syn::Fields) -> TokenStream2 {
-    let fields: TokenStream2 = fields
-        .iter()
-        .fold(quote!{}, |q, f| {
-            let n = f.ident.as_ref().unwrap();
-            quote! {
-                #q
-                #n: table.remove(stringify!(#n)).map_or_else(
-                    || convert_no_value()
-                        .map_err(|e| format!("Cannot convert to {}. Field {}: {}", stringify!(#name), stringify!(#n), e)),
-                    convert
-                )?,
-            }
-        }).into();
+fn body_from_from_value_normal_struct(name: &syn::Ident, fields: &syn::Fields) -> TokenStream2 {
+    let fields: TokenStream2 = named_fields(fields);
+    let err = format!("Cannot convert to {}, not a Table", name);
     quote! {
-        let table = v.as_table_mut().ok_or_else(
-            || format!("Cannot convert to {}: not a Table", stringify!(#name))
-        )?;
-        Ok( #name {
-            #fields
-        })
+        match v {
+            Value::Table(mut v) => Ok(#name { #fields }),
+            _ => Err(#err.to_owned())
+        }
     }
 }
 
-fn impl_derive_from_value_struct_unnamed(
-    _name: &syn::Ident,
-    _fields: &syn::Fields,
+fn body_from_from_value_tuple_struct(
+    name: &syn::Ident,
+    fields: &syn::Fields,
 ) -> TokenStream2 {
-    unimplemented!()
+    let fields = fields.iter().fold(quote!{}, |q, _| quote! {
+        #q
+        Value::convert(v.next())?,
+    });
+    let err = format!("Cannot convert to {}, not a List", name);
+    quote! {
+        match v {
+            Value::List(mut v) => {
+                let mut v = v.drain(..);
+                Ok(#name(
+                    #fields
+                ))
+            }
+            _ => Err(#err.to_owned()),
+        }
+    }
 }
 
-fn impl_derive_from_value_struct_unit(_name: &syn::Ident) -> TokenStream2 {
-    unimplemented!()
-}
-
-fn impl_derive_from_value_enum(name: &syn::Ident, data: &syn::DataEnum) -> TokenStream2 {
+fn body_from_from_value_enum(name: &syn::Ident, data: &syn::DataEnum) -> TokenStream2 {
     let branches = data.variants.iter().fold(quote!{}, |q, data| {
         let vname = &data.ident;
         let match_name = (&data.ident).to_string().to_lowercase();
+        let unit_err = format!("Key \"{}\" doesn't expect a value", match_name);
+        let list_err = format!("Key \"{}\" expects a List value", match_name);
+        let table_err = format!("Key \"{}\" expects a Table value", match_name);
         let branch = match data.fields {
             syn::Fields::Named(_) => {
-                let fields = named_fields(stringify!(#name::vname), &data.fields);
-                quote!{
-                    {
-                        let mut v = v.get(#match_name)
-                            .and_then(|v| v.as_table_mut())
-                            .ok_or_else(
-                                || format!("Cannot convert to {}: \"{}\" is not a Table",
-                                           stringify!(#name::#vname),
-                                           stringify!(#match_name))
-                            )?;
-                        Ok(#name::#vname { #fields })
+                let fields = named_fields(&data.fields);
+                quote! {
+                    match v {
+                        Some(Value::Table(mut v)) => Ok(#name::#vname {
+                            #fields
+                        }),
+                        _ => Err(#table_err.to_owned()),
                     }
                 }
             }
             syn::Fields::Unnamed(_) => {
-                let _fields = unimplemented!();
-                // quote!{ Ok(#name::#vname ( #fields )) }
+                let fields = data.fields.iter().fold(quote!{}, |q, _| quote! {
+                    #q
+                    Value::convert(v.next())?,
+                });
+                quote! {
+                    match v {
+                        Some(Value::List(mut v)) => {
+                            let mut v = v.drain(..);
+                            Ok(#name::#vname(
+                                #fields
+                            ))
+                        }
+                        _ => Err(#list_err.to_owned()),
+                    }
+                }
             }
-            syn::Fields::Unit => quote!{ Ok(#name::#vname) },
+            syn::Fields::Unit => quote! {
+                v.map_or_else(
+                    || Ok(#name::#vname),
+                    |_| Err(#unit_err.to_owned()),
+                ),
+            },
         };
         quote! {
             #q
-            #match_name => #branch,
+            #match_name => #branch
         }
     });
     quote! {
-        v.as_str()
-            .or(v.as_table().filter(|t| t.len() == 1).map(|t| t.iter().next().unwrap().0.as_str()))
-            .ok_or_else(
-                || format!("Cannot convert to {}: not String or single value Table", stringify!(#name)))
-            .and_then(|variant| match variant {
-                // named -> value.get("variant").as_table_mut()
-                // unnamed -> value.get("variant").as_list_mut()
-                // unit -> Ok(name::variant)
-                #branches
-                _ => Err(format!("Cannot convert to {}: no such variant \"{}\"", stringify!(#name), variant)),
-            })
+        match v {
+            Value::String(s) => Ok((s, None)),
+            Value::Table(ref mut t) if t.len() == 1 => {
+                Ok(t.drain().next().map(|(k, v)| (k, Some(v))).unwrap())
+            }
+            _ => Err("Not an enum Variant".to_owned()),
+        }.and_then(|(n, v)| match n.as_ref() {
+            #branches
+            _ => Err(format!("No such variant \"{}\"", n)),
+        })
     }
 }
 
-fn named_fields(name: &str, data: &syn::Fields) -> TokenStream2 {
-    data
-        .iter()
+fn named_fields(data: &syn::Fields) -> TokenStream2 {
+    data.iter()
         .fold(quote!{}, |q, f| {
             let n = f.ident.as_ref().unwrap();
             quote! {
                 #q
-                #n: v.remove(stringify!(#n)).map_or_else(
-                    || convert_no_value()
-                        .map_err(|e| format!("Cannot convert to {}. Field {}: {}", stringify!(#name), stringify!(#n), e)),
-                    convert
-                )?,
+                #n: Value::convert(v.remove(stringify!(#n)))?,
             }
-        }).into()
+        })
 }

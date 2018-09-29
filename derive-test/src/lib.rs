@@ -38,7 +38,7 @@ mod tests {
             a: String,
         }
         assert_eq!(
-            A::from_value(parse_noc::<Value>("a apple").unwrap()),
+            parse_noc::<A>("a apple"),
             Ok(A {
                 a: "apple".to_owned(),
             })
@@ -67,7 +67,7 @@ mod tests {
             ),
         ];
         for (a, b) in tests {
-            assert_eq!(&A::from_value(parse_noc::<Value>(a).unwrap()), b);
+            assert_eq!(&parse_noc::<A>(a), b);
         }
         let tests = &[
             "a 18446744073709551617, b 0, c 0, d 0",
@@ -84,7 +84,7 @@ mod tests {
             "a 0, b 0, c 0, d 0.0",
         ];
         for a in tests {
-            assert!(&A::from_value(parse_noc::<Value>(a).unwrap()).is_err());
+            assert!(parse_noc::<A>(a).is_err());
         }
     }
 
@@ -175,14 +175,8 @@ mod tests {
         struct A {
             a: Option<u8>,
         }
-        assert_eq!(
-            A::from_value(parse_noc::<Value>("b apple").unwrap()),
-            Ok(A { a: None })
-        );
-        assert_eq!(
-            A::from_value(parse_noc::<Value>("a 200").unwrap()),
-            Ok(A { a: Some(200) })
-        );
+        assert_eq!(parse_noc::<A>("b apple"), Ok(A { a: None }));
+        assert_eq!(parse_noc::<A>("a 200"), Ok(A { a: Some(200) }));
     }
 
     #[test]
@@ -197,7 +191,7 @@ mod tests {
             b: String,
         }
         assert_eq!(
-            B::from_value(parse_noc::<Value>("a { a apple }, b banana").unwrap()),
+            parse_noc::<B>("a { a apple }, b banana"),
             Ok(B {
                 a: A {
                     a: "apple".to_owned()
@@ -205,5 +199,104 @@ mod tests {
                 b: "banana".to_owned(),
             })
         );
+    }
+
+    #[test]
+    fn test_tuple_struct() {
+        #[derive(Debug, FromValue, PartialEq)]
+        struct A(i8, i8, i8);
+        #[derive(Debug, FromValue, PartialEq)]
+        struct B {
+            a: A,
+        }
+        assert_eq!(parse_noc::<B>("a [1,2,3]"), Ok(B { a: A(1, 2, 3) }));
+    }
+
+    #[test]
+    fn test_enum() {
+        #[derive(Debug, FromValue, PartialEq)]
+        enum A {
+            A,
+            B,
+        };
+        #[derive(Debug, FromValue, PartialEq)]
+        struct B {
+            a: A,
+        }
+        assert_eq!(parse_noc::<B>("a a"), Ok(B { a: A::A }));
+        assert_eq!(parse_noc::<B>("a b"), Ok(B { a: A::B }));
+    }
+
+    #[test]
+    fn test_enum_with_named_variant() {
+        #[derive(Debug, FromValue, PartialEq)]
+        enum A {
+            A { a: i8 },
+            B { b: u32 },
+        };
+        #[derive(Debug, FromValue, PartialEq)]
+        struct B {
+            a: A,
+        }
+        assert_eq!(parse_noc::<B>("a a {a 42}"), Ok(B { a: A::A { a: 42 } }));
+        assert_eq!(parse_noc::<B>("a b {b 42}"), Ok(B { a: A::B { b: 42 } }));
+    }
+
+    #[test]
+    fn test_enum_with_unnamed_variant() {
+        #[derive(Debug, FromValue, PartialEq)]
+        enum A {
+            A(i8, i8, i8),
+            B(u32),
+        };
+        #[derive(Debug, FromValue, PartialEq)]
+        struct B {
+            a: A,
+        }
+        assert_eq!(parse_noc::<B>("a a [1,2,3]"), Ok(B { a: A::A(1, 2, 3) }));
+        assert_eq!(parse_noc::<B>("a b [41+1]"), Ok(B { a: A::B(42) }));
+    }
+
+    #[test]
+    fn test_mixed_enum() {
+        #[derive(Debug, FromValue, PartialEq)]
+        enum A {
+            A,
+            B { b: u32 },
+            C(u8),
+        };
+        #[derive(Debug, FromValue, PartialEq)]
+        struct B {
+            a: A,
+        }
+        assert_eq!(parse_noc::<B>("a a"), Ok(B { a: A::A }));
+        assert_eq!(parse_noc::<B>("a b {b 42}"), Ok(B { a: A::B { b: 42 } }));
+        assert_eq!(parse_noc::<B>("a c [41+1]"), Ok(B { a: A::C(42) }));
+    }
+
+    #[test]
+    fn test_invalid_enums() {
+        #[derive(Debug, FromValue, PartialEq)]
+        enum A {
+            A,
+            B { b: u32 },
+            C(u8),
+        };
+        #[derive(Debug, FromValue, PartialEq)]
+        struct B {
+            a: A,
+        }
+        assert!(parse_noc::<B>("a a [42]").is_err());
+        assert!(parse_noc::<B>("a a []").is_err());
+        assert!(parse_noc::<B>("a b {b:42}").is_err());
+        assert!(parse_noc::<B>("a b [42]").is_err());
+        assert!(parse_noc::<B>("a b").is_err());
+        assert!(parse_noc::<B>("a b {c:42}").is_err());
+        assert!(parse_noc::<B>("a b {}").is_err());
+        assert!(parse_noc::<B>("a d").is_err());
+        assert!(parse_noc::<B>("a d {d:42}").is_err());
+        assert!(parse_noc::<B>("a d").is_err());
+        assert!(parse_noc::<B>("a d {d:42}").is_err());
+        assert!(parse_noc::<B>("a d [42]").is_err());
     }
 }

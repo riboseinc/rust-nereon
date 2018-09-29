@@ -92,7 +92,7 @@ where
                     args: Vec::new(),
                 },
             )
-        }).and_then(|v| T::from_value(v))
+        }).and_then(T::from_value)
 }
 
 fn mk_value<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, String> {
@@ -204,7 +204,7 @@ fn mk_quoted(quoted: Pair<Rule>) -> Result<Value, String> {
 fn mk_template<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) {
     let mut iter = pair.into_inner();
     let name = mk_value(iter.next().unwrap(), state)
-        .and_then(|v| String::from_value(v))
+        .and_then(String::from_value)
         .unwrap();
     state.templates.push((name, iter.next().unwrap()));
 }
@@ -246,7 +246,7 @@ fn apply_template(name: &str, args: &[Value], state: &mut State) -> Result<Value
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::{parse_noc, Value};
     use std::collections::HashMap;
     use std::iter::FromIterator;
@@ -335,7 +335,7 @@ mod test {
     }
 
     #[test]
-    fn test_unalanced() {
+    fn test_unbalanced() {
         assert!(parse_noc::<Value>("test {]").is_err());
     }
 

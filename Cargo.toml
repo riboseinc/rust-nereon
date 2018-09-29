@@ -1,13 +1,13 @@
 [package]
 name = "nereon"
 description = "Riboseinc configuration library for Rust"
-version = "0.3.1"
+version = "0.3.2"
 authors = ["John Hedges <john@drystone.co.uk>"]
 license = "BSD-2-Clause"
 repository = "https://github.com/riboseinc/rust-nereon"
 readme = "README.md"
 
-exclude = ["/**/*~", "/**/.dir-locals.el"]
+exclude = [".gitignore", ".travis.yml"]
 
 [workspace]
 members = ["noc", "derive", "derive-test"]

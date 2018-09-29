@@ -163,6 +163,22 @@ impl Value {
         }
     }
 
+    /// Convert a `Value` into any type implementing FromValue
+    ///
+    /// This function takes an `Option<Value>`. With some types, such
+    /// as Option<T>, `None` may be converted successfully.
+    ///
+    /// # Example
+    /// ```
+    /// # extern crate nereon;
+    /// use nereon::Value;
+    /// let v = Value::from("42");
+    /// assert_eq!(Value::convert(Some(v)), Ok(42));
+    /// ```
+    pub fn convert<T: FromValue>(v: Option<Value>) -> Result<T, String> {
+        v.map_or_else(T::from_no_value, T::from_value)
+    }
+
     /// Get a `Value` from a `Value::Table` by `key`
     ///
     /// # Example

@@ -299,4 +299,23 @@ mod tests {
         assert!(parse_noc::<B>("a d {d:42}").is_err());
         assert!(parse_noc::<B>("a d [42]").is_err());
     }
+
+    #[test]
+    fn test_missing_vec() {
+        #[derive(Debug, FromValue, PartialEq)]
+        struct A {
+            vec: Vec<String>,
+        }
+        assert_eq!(parse_noc::<A>(""), Ok(A {vec: Vec::default()}));
+    }
+
+    #[test]
+    fn test_missing_map() {
+        use std::collections::HashMap;
+        #[derive(Debug, FromValue, PartialEq)]
+        struct A {
+            map: HashMap<String, String>,
+        }
+        assert_eq!(parse_noc::<A>(""), Ok(A {map: HashMap::default()}));
+    }
 }

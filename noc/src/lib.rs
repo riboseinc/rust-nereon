@@ -57,7 +57,7 @@ pub fn main() -> Result<(), String> {
 
     config
         .port
-        .map_or_else(|| parse(), |p| playground(p))
+        .map_or_else(parse, playground)
         .map_err(|e| format!("{:?}", e))
 }
 

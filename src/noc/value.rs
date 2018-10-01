@@ -513,7 +513,7 @@ where
     T: FromValue,
 {
     fn from_value(value: Value) -> Result<Self, String> {
-        T::from_value(value).map(Some).or_else(|_| Ok(None))
+        Ok(Some(T::from_value(value)?))
     }
     fn from_no_value() -> Result<Self, String> {
         Ok(None)
@@ -537,6 +537,9 @@ where
                 })
             })
     }
+    fn from_no_value() -> Result<Self, String> {
+        Ok(HashMap::default())
+    }
 }
 
 impl<T> FromValue for Vec<T>
@@ -555,6 +558,9 @@ where
                     })
                 })
             })
+    }
+    fn from_no_value() -> Result<Self, String> {
+        Ok(Vec::default())
     }
 }
 

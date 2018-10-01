@@ -3,7 +3,7 @@ name = "noc"
 description = "Nereon NOC syntax checker and playground server"
 authors = ["John Hedges <john@drystone.co.uk>"]
 repository = "https://github.com/riboseinc/rust-nereon"
-version = "0.1.2"
+version = "0.1.3"
 license = "BSD-2-Clause"
 exclude = ["/**/*~", "/**/.dir-locals.el"]
 

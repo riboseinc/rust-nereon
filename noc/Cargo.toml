@@ -1,13 +1,13 @@
 [package]
 name = "noc"
 description = "Nereon NOC syntax checker and playground server"
-authors = ["John Hedges <john@drystone.co.uk>"]
+authors = ["John Hedges <john@drystone.co.uk>", "Ribose Inc. <open.source@ribose.com>"]
 repository = "https://github.com/riboseinc/rust-nereon"
-version = "0.1.3"
+version = "0.4.0"
 license = "BSD-2-Clause"
 exclude = ["/**/*~", "/**/.dir-locals.el"]
 
 [dependencies]
-nereon = "0.3"
-nereon_derive = "0.2"
+nereon = "0.4"
+nereon_derive = "0.4"
 tiny_http = "0.6"

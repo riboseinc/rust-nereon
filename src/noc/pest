@@ -1,5 +1,5 @@
-whitespace = _{ " " | "\t" }
-sep = _{ "," | "\n" | "\r" }
+WHITESPACE = _{ " " | "\t" }
+sep = _{ "," | NEWLINE }
 plus = { "+" }
 minus = { "-" }
 times = { "*" }
@@ -8,7 +8,7 @@ intdiv = { "\\" }
 modulus = { "%" }
 power = { "^" }
 quote = _{ "\"" }
-infix = _{ whitespace+ ~ (plus | minus | times | divide | intdiv | modulus | power) ~ whitespace+ }
+infix = _{ WHITESPACE+ ~ (plus | minus | times | divide | intdiv | modulus | power) ~ WHITESPACE+ }
 backslash = _{"\\" }
 oct = _{ '0'..'7' }
 hex = _{ '0'..'9' | 'a'..'f' | 'A'..'F' }
@@ -19,8 +19,10 @@ esc = @{
   | "\\U" ~ hex{8}
   | "\\u" ~ hex{4}
 }
-quoted_chars = @{ (!quote ~ !backslash ~ any)+ }
+
+quoted_chars = @{ (!quote ~ !backslash ~ ANY)+ }
 quoted_string = ${ (esc | quoted_chars)* }
+
 bare_string = @{ minus? ~ ('a'..'z' | 'A'..'Z' | '0'..'9' | "." | "_" )+ }
 function = ${ bare_string ~ "(" ~ list ~ ")" }
 value = !{
@@ -38,4 +40,4 @@ key_value = { expression{2,} }
 kv_list = _{((template | key_value) ~ sep ~ kv_list | sep ~ kv_list | (template | key_value))? }
 list = !{ exp_list }
 dict = !{ kv_list }
-root = _{ dict ~ eoi }
+root = _{ dict ~ EOI }

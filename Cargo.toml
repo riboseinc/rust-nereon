@@ -15,8 +15,8 @@ members = ["noc", "derive", "derive-test"]
 [dependencies]
 clap = "2.32"
 lazy_static = "1.1"
-pest = "1.0"
-pest_derive = "1.0"
+pest = "2.0"
+pest_derive = "2.0"
 nereon_derive = "0.2"
 
 [dev-dependencies]

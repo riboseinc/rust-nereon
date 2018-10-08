@@ -1,8 +1,8 @@
 [package]
 name = "nereon_derive"
 description = "Automatic Nereon FromValue trait implementations."
-version = "0.2.1"
-authors = ["John Hedges <john@drystone.co.uk>"]
+version = "0.4.0"
+authors = ["John Hedges <john@drystone.co.uk>", "Ribose Inc. <open.source@ribose.com>"]
 license = "BSD-2-Clause"
 repository = "https://github.com/riboseinc/rust-nereon"
 exclude = ["/**/*~", "/**/.dir-locals.el"]

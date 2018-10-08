@@ -1,6 +1,8 @@
 WHITESPACE = _{ " " | "\t" }
 COMMENT = _{ "#" ~ (!NEWLINE ~ ANY)* }
+
 sep = _{ "," | NEWLINE }
+
 plus = { "+" }
 minus = { "-" }
 times = { "*" }
@@ -10,9 +12,10 @@ modulus = { "%" }
 power = { "^" }
 quote = _{ "\"" }
 infix = _{ WHITESPACE+ ~ (plus | minus | times | divide | intdiv | modulus | power) ~ WHITESPACE+ }
+
 backslash = _{"\\" }
-oct = _{ '0'..'7' }
-hex = _{ '0'..'9' | 'a'..'f' | 'A'..'F' }
+oct = _{ ASCII_OCT_DIGIT }
+hex = _{ ASCII_HEX_DIGIT }
 esc = @{
     "\\" ~ ("n" | "r" | "t" | "\\" | "\'" | "\"")
   | "\\0" ~ oct ~ oct
@@ -24,14 +27,19 @@ esc = @{
 quoted_chars = @{ (!quote ~ !backslash ~ ANY)+ }
 quoted_string = ${ (esc | quoted_chars)* }
 
-bare_string = @{ minus? ~ ('a'..'z' | 'A'..'Z' | '0'..'9' | "." | "_" )+ }
+special = { "{" | "}" | "(" | ")" | "[" | "]" | " " | "," }
+special_esc = @{ "\\" ~ special }
+
+bare_chars = @{ (!quote ~ !backslash ~ !special ~ !COMMENT ~ !NEWLINE ~ ANY)+ }
+bare_string = ${ (special_esc | esc | bare_chars)+ }
+
 function = ${ bare_string ~ "(" ~ list ~ ")" }
 value = !{
     function
   | bare_string
   | quote ~ quoted_string ~ quote
   | "(" ~ expression ~ ")"
-  | "{" ~ dict ~ "}"
+  | "{" ~ table ~ "}"
   | "[" ~ list ~ "]"
 }
 template = { "let(" ~ sep* ~ (bare_string | quoted_string) ~ sep* ~ expression ~ sep* ~ ")" }
@@ -40,5 +48,5 @@ exp_list = _{ ((template | expression) ~ sep ~ exp_list | sep ~ exp_list | (temp
 key_value = { expression{2,} }
 kv_list = _{((template | key_value) ~ sep ~ kv_list | sep ~ kv_list | (template | key_value))? }
 list = !{ exp_list }
-dict = !{ kv_list }
-root = _{ dict ~ EOI }
+table = !{ kv_list }
+root = _{ table ~ EOI }

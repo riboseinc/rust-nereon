@@ -97,17 +97,17 @@ where
 
 fn mk_value<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, String> {
     match pair.as_rule() {
-        Rule::dict => mk_dict(pair, state),
+        Rule::table => mk_table(pair, state),
         Rule::list => mk_list(pair, state).map(Value::List),
         Rule::expression => evaluate(pair, state),
-        Rule::bare_string => Ok(Value::String(pair.into_span().as_str().to_owned())),
+        Rule::bare_string => mk_bare(pair),
         Rule::quoted_string => mk_quoted(pair),
         Rule::function => apply_function(pair, state),
         _ => unreachable!(),
     }
 }
 
-fn mk_dict<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, String> {
+fn mk_table<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, String> {
     pair.into_inner()
         .try_fold(Value::Table(HashMap::new()), |dict, pair| {
             match pair.as_rule() {
@@ -171,6 +171,26 @@ fn evaluate<'a>(expression: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Val
     )
 }
 
+fn mk_bare(bare: Pair<Rule>) -> Result<Value, String> {
+    bare.into_inner()
+        .try_fold(String::new(), |mut s, pair| match pair.as_rule() {
+            Rule::bare_chars => {
+                s.push_str(pair.into_span().as_str());
+                Ok(s)
+            }
+            Rule::esc => unescape(pair.into_span().as_str()).map(|c| {
+                s.push(c);
+                s
+            }),
+            Rule::special_esc => {
+                let mut esc = pair.into_span().as_str();
+                s.push(esc.chars().nth(1).unwrap());
+                Ok(s)
+            }
+            _ => unreachable!(),
+        }).map(Value::String)
+}
+
 fn mk_quoted(quoted: Pair<Rule>) -> Result<Value, String> {
     quoted
         .into_inner()
@@ -179,26 +199,27 @@ fn mk_quoted(quoted: Pair<Rule>) -> Result<Value, String> {
                 s.push_str(pair.into_span().as_str());
                 Ok(s)
             }
-            Rule::esc => {
-                let mut esc = pair.into_span().as_str();
-                let code = esc.get(2..).unwrap();
-                match esc.chars().nth(1).unwrap() {
-                    'r' => Ok('\r'),
-                    'n' => Ok('\n'),
-                    't' => Ok('\t'),
-                    c if c == '\\' || c == '\'' || c == '\"' => Ok(c),
-                    '0' => Ok(char::from(u8::from_str_radix(code, 8).unwrap())),
-                    'x' => Ok(char::from(u8::from_str_radix(code, 16).unwrap())),
-                    'u' | 'U' => from_u32(u32::from_str_radix(code, 16).unwrap())
-                        .ok_or_else(|| "Invalid unicode".to_owned()),
-                    _ => unreachable!(),
-                }.map(|c| {
-                    s.push(c);
-                    s
-                })
-            }
+            Rule::esc => unescape(pair.into_span().as_str()).map(|c| {
+                s.push(c);
+                s
+            }),
             _ => unreachable!(),
         }).map(Value::String)
+}
+
+fn unescape(s: &str) -> Result<char, String> {
+    let code = s.get(2..).unwrap();
+    match s.chars().nth(1).unwrap() {
+        'r' => Ok('\r'),
+        'n' => Ok('\n'),
+        't' => Ok('\t'),
+        c if c == '\\' || c == '\'' || c == '\"' => Ok(c),
+        '0' => Ok(char::from(u8::from_str_radix(code, 8).unwrap())),
+        'x' => Ok(char::from(u8::from_str_radix(code, 16).unwrap())),
+        'u' | 'U' => from_u32(u32::from_str_radix(code, 16).unwrap())
+            .ok_or_else(|| "Invalid unicode".to_owned()),
+        _ => unreachable!(),
+    }
 }
 
 fn mk_template<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) {
@@ -340,6 +361,23 @@ mod tests {
     }
 
     #[test]
+    fn bare() {
+        vec![
+            ("a abcABC123", r#""a" "abcABC123""#),
+            (r#"a \{\}\[\]\(\)\ \,"#, r#""a" "{}[]() ,""#),
+            (r#"a \x20"#, r#""a" " ""#),
+            (r#"a \040"#, r#""a" " ""#),
+            (r#"a \u0020"#, r#""a" " ""#),
+            (r#"a \U00000020"#, r#""a" " ""#),
+            (r#"a Ψฒ≨🚲"#, r#""a" "Ψฒ≨🚲""#),
+            (r#"a \{b\ c\}"#, r#""a" "{b c}""#),
+        ].iter()
+        .for_each(|(a, b)| {
+            assert_eq!(&parse_noc::<Value>(a).unwrap().as_noc_string(), b);
+        });
+    }
+
+    #[test]
     fn test_quoted() {
         vec![
             (r#"a "\x20""#, r#""a" " ""#),
@@ -443,15 +481,18 @@ mod tests {
 
     #[test]
     fn calculate_fail_missing_whitespace() {
+        // these don't fail but behave somewhat unexpectedly
         vec![
-            ("a 1+ 1"),
-            ("a 1 --1"),
-            ("a 1*  -10"),
-            ("a \"-1\"*10"),
-            ("a (2 +3) * 4"),
+            ("a 1+1", r#"a "1+1""#),
+            ("a 1 --1", r#"a{1 "--1"}"#),
+            ("a 1*  -10", r#"a {"1*" "-10"}"#),
+            (r#"a "-1"*10"#, r#"a{"-1" "*10"}"#),
         ].iter()
-        .for_each(|a| {
-            assert!(parse_noc::<Value>(a).is_err());
+        .for_each(|(a, b)| {
+            assert_eq!(
+                parse_noc::<Value>(a).unwrap(),
+                parse_noc::<Value>(b).unwrap(),
+            )
         });
     }
 

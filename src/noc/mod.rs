@@ -440,4 +440,18 @@ mod tests {
             assert_eq!(&parse_noc::<Value>(a).unwrap().as_noc_string(), b);
         });
     }
+
+    #[test]
+    fn calculate_fail_missing_whitespace() {
+        vec![
+            ("a 1+ 1"),
+            ("a 1 --1"),
+            ("a 1*  -10"),
+            ("a \"-1\"*10"),
+            ("a (2 +3) * 4"),
+        ].iter()
+        .for_each(|a| {
+            assert!(parse_noc::<Value>(a).is_err());
+        });
+    }
 }

@@ -1,8 +1,8 @@
 [package]
 name = "nereon"
 description = "Riboseinc configuration library for Rust"
-version = "0.3.3"
-authors = ["John Hedges <john@drystone.co.uk>"]
+version = "0.3.4"
+authors = ["John Hedges <john@drystone.co.uk>", "Ribose Inc. <open.source@ribose.com>"]
 license = "BSD-2-Clause"
 repository = "https://github.com/riboseinc/rust-nereon"
 readme = "README.md"
@@ -17,7 +17,7 @@ clap = "2.32"
 lazy_static = "1.1"
 pest = "1.0"
 pest_derive = "1.0"
-nereon_derive = {path = "derive", version = "0.2"}
+nereon_derive = "0.2"
 
 [dev-dependencies]
 toml = "0.4"

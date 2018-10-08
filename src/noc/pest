@@ -8,7 +8,7 @@ intdiv = { "\\" }
 modulus = { "%" }
 power = { "^" }
 quote = _{ "\"" }
-infix = _{ plus | minus | times | divide | intdiv | modulus | power }
+infix = _{ whitespace+ ~ (plus | minus | times | divide | intdiv | modulus | power) ~ whitespace+ }
 backslash = _{"\\" }
 oct = _{ '0'..'7' }
 hex = _{ '0'..'9' | 'a'..'f' | 'A'..'F' }
@@ -23,7 +23,7 @@ quoted_chars = @{ (!quote ~ !backslash ~ any)+ }
 quoted_string = ${ (esc | quoted_chars)* }
 bare_string = @{ minus? ~ ('a'..'z' | 'A'..'Z' | '0'..'9' | "." | "_" )+ }
 function = ${ bare_string ~ "(" ~ list ~ ")" }
-value = {
+value = !{
     function
   | bare_string
   | quote ~ quoted_string ~ quote
@@ -32,7 +32,7 @@ value = {
   | "[" ~ list ~ "]"
 }
 template = { "let(" ~ sep* ~ (bare_string | quoted_string) ~ sep* ~ expression ~ sep* ~ ")" }
-expression = { value ~ (infix ~ value)* }
+expression = ${ value ~ (infix ~ value)* }
 exp_list = _{ ((template | expression) ~ sep ~ exp_list | sep ~ exp_list | (template | expression))? }
 key_value = { expression{2,} }
 kv_list = _{((template | key_value) ~ sep ~ kv_list | sep ~ kv_list | (template | key_value))? }

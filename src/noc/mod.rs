@@ -232,23 +232,29 @@ fn mk_template<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) {
 
 fn apply_function<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, String> {
     let mut iter = pair.into_inner();
-    let name = iter.next().unwrap().as_str();
-    mk_list(iter.next().unwrap(), state).and_then(|args| match name {
-        "apply" => args[0]
-            .as_str()
-            .ok_or_else(|| "Template name isn't a string".to_owned())
-            .and_then(|name| apply_template(name, &args[1..], state)),
-        "arg" => match args.len() {
-            1 => args[0]
+    let name = iter.next().unwrap();
+    if name.as_str() == "$" {
+        let name = mk_value(iter.next().unwrap(), state).and_then(String::from_value)?;
+        apply_template(&name, &[], state)
+    } else {
+        let name = mk_value(name, state).and_then(String::from_value)?;
+        mk_list(iter.next().unwrap(), state).and_then(|args| match name.as_ref() {
+            "apply" => args[0]
                 .as_str()
-                .ok_or(())
-                .and_then(|arg| arg.parse::<usize>().map_err(|_| ()))
-                .and_then(|n| state.args.get(n).ok_or(()))
-                .map(|v| v.clone()),
-            _ => Err(()),
-        }.map_err(|_| "arg(n): bad argument n".to_owned()),
-        _ => functions::apply(name, &args[0..]),
-    })
+                .ok_or_else(|| "Template name isn't a string".to_owned())
+                .and_then(|name| apply_template(name, &args[1..], state)),
+            "arg" => match args.len() {
+                1 => args[0]
+                    .as_str()
+                    .ok_or(())
+                    .and_then(|arg| arg.parse::<usize>().map_err(|_| ()))
+                    .and_then(|n| state.args.get(n).ok_or(()))
+                    .map(|v| v.clone()),
+                _ => Err(()),
+            }.map_err(|_| "arg(n): bad argument n".to_owned()),
+            _ => functions::apply(&name, &args[0..]),
+        })
+    }
 }
 
 fn apply_template(name: &str, args: &[Value], state: &mut State) -> Result<Value, String> {
@@ -507,6 +513,41 @@ mod tests {
             ("a [1 #comment\n, 2]", "a [1,2]"),
             ("a {b c#comment\n}", "a {b c}"),
             ("\n# comment\na {\n#comment\n}", "a{}"),
+        ].iter()
+        .for_each(|(a, b)| {
+            assert_eq!(
+                parse_noc::<Value>(a).unwrap(),
+                parse_noc::<Value>(b).unwrap()
+            );
+        });
+    }
+
+    #[test]
+    fn templates() {
+        vec![
+            ("let(t, 1), a apply(t)", "a 1"),
+            ("let(t, 1), a $t", "a 1"),
+            ("let(t, 1), a $t + 1", "a 2"),
+        ].iter()
+        .for_each(|(a, b)| {
+            assert_eq!(
+                parse_noc::<Value>(a).unwrap(),
+                parse_noc::<Value>(b).unwrap()
+            );
+        });
+    }
+
+    #[test]
+    fn functions() {
+        vec![
+            ("a add(1, 1)", "a 2"),
+            ("let(t, 1), a add($t, 1)", "a 2"),
+            ("a subtract(1, 1)", "a 0"),
+            ("let(t, 1), a subtract($t, 1)", "a 0"),
+            ("a divide(1, 1)", "a 1"),
+            ("let(t, 1), a divide($t, $t)", "a 1"),
+            ("a multiply(2, 2)", "a 4"),
+            ("let(t, 2), a add($t, $t)", "a 4"),
         ].iter()
         .for_each(|(a, b)| {
             assert_eq!(

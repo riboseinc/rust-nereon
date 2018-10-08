@@ -27,13 +27,14 @@ esc = @{
 quoted_chars = @{ (!quote ~ !backslash ~ ANY)+ }
 quoted_string = ${ (esc | quoted_chars)* }
 
-special = { "{" | "}" | "(" | ")" | "[" | "]" | " " | "," }
+special = { "{" | "}" | "(" | ")" | "[" | "]" | " " | "," | "$" }
 special_esc = @{ "\\" ~ special }
 
 bare_chars = @{ (!quote ~ !backslash ~ !special ~ !COMMENT ~ !NEWLINE ~ ANY)+ }
 bare_string = ${ (special_esc | esc | bare_chars)+ }
 
-function = ${ bare_string ~ "(" ~ list ~ ")" }
+dollar = { "$" }
+function = ${ (bare_string ~ "(" ~ list ~ ")" | dollar ~ bare_string) }
 value = !{
     function
   | bare_string

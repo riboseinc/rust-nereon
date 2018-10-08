@@ -1,4 +1,5 @@
 WHITESPACE = _{ " " | "\t" }
+COMMENT = _{ "#" ~ (!NEWLINE ~ ANY)* }
 sep = _{ "," | NEWLINE }
 plus = { "+" }
 minus = { "-" }

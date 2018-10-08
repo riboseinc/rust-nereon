@@ -454,4 +454,24 @@ mod tests {
             assert!(parse_noc::<Value>(a).is_err());
         });
     }
+
+    #[test]
+    fn comments() {
+        vec![
+            ("a {} # comment", "a {}"),
+            ("a { # comment\n}", "a {}"),
+            ("a [] #comment", "a []"),
+            ("a test #comment", "a test"),
+            ("a test#comment", "a test"),
+            ("a [1 #comment\n, 2]", "a [1,2]"),
+            ("a {b c#comment\n}", "a {b c}"),
+            ("\n# comment\na {\n#comment\n}", "a{}"),
+        ].iter()
+        .for_each(|(a, b)| {
+            assert_eq!(
+                parse_noc::<Value>(a).unwrap(),
+                parse_noc::<Value>(b).unwrap()
+            );
+        });
+    }
 }

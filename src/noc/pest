@@ -27,7 +27,7 @@ esc = @{
 quoted_chars = @{ (!quote ~ !backslash ~ ANY)+ }
 quoted_string = ${ (esc | quoted_chars)* }
 
-special = { "{" | "}" | "(" | ")" | "[" | "]" | " " | "," | "$" }
+special = { "{" | "}" | "(" | ")" | "[" | "]" | " " | "," | "$" | "#" }
 special_esc = @{ "\\" ~ special }
 
 bare_chars = @{ (!quote ~ !backslash ~ !special ~ !COMMENT ~ !NEWLINE ~ ANY)+ }

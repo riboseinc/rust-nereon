@@ -254,7 +254,7 @@ mod tests {
             a: A,
         }
         assert_eq!(parse_noc::<B>("a a [1,2,3]"), Ok(B { a: A::A(1, 2, 3) }));
-        assert_eq!(parse_noc::<B>("a b [41+1]"), Ok(B { a: A::B(42) }));
+        assert_eq!(parse_noc::<B>("a b [41 + 1]"), Ok(B { a: A::B(42) }));
     }
 
     #[test]
@@ -271,7 +271,7 @@ mod tests {
         }
         assert_eq!(parse_noc::<B>("a a"), Ok(B { a: A::A }));
         assert_eq!(parse_noc::<B>("a b {b 42}"), Ok(B { a: A::B { b: 42 } }));
-        assert_eq!(parse_noc::<B>("a c [41+1]"), Ok(B { a: A::C(42) }));
+        assert_eq!(parse_noc::<B>("a c [41 + 1]"), Ok(B { a: A::C(42) }));
     }
 
     #[test]

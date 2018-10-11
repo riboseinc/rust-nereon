@@ -97,17 +97,17 @@ where
 
 fn mk_value<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, String> {
     match pair.as_rule() {
-        Rule::dict => mk_dict(pair, state),
+        Rule::table => mk_table(pair, state),
         Rule::list => mk_list(pair, state).map(Value::List),
         Rule::expression => evaluate(pair, state),
-        Rule::bare_string => Ok(Value::String(pair.into_span().as_str().to_owned())),
+        Rule::bare_string => mk_bare(pair),
         Rule::quoted_string => mk_quoted(pair),
         Rule::function => apply_function(pair, state),
         _ => unreachable!(),
     }
 }
 
-fn mk_dict<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, String> {
+fn mk_table<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, String> {
     pair.into_inner()
         .try_fold(Value::Table(HashMap::new()), |dict, pair| {
             match pair.as_rule() {
@@ -171,6 +171,26 @@ fn evaluate<'a>(expression: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Val
     )
 }
 
+fn mk_bare(bare: Pair<Rule>) -> Result<Value, String> {
+    bare.into_inner()
+        .try_fold(String::new(), |mut s, pair| match pair.as_rule() {
+            Rule::bare_chars => {
+                s.push_str(pair.into_span().as_str());
+                Ok(s)
+            }
+            Rule::esc => unescape(pair.into_span().as_str()).map(|c| {
+                s.push(c);
+                s
+            }),
+            Rule::special_esc => {
+                let mut esc = pair.into_span().as_str();
+                s.push(esc.chars().nth(1).unwrap());
+                Ok(s)
+            }
+            _ => unreachable!(),
+        }).map(Value::String)
+}
+
 fn mk_quoted(quoted: Pair<Rule>) -> Result<Value, String> {
     quoted
         .into_inner()
@@ -179,26 +199,27 @@ fn mk_quoted(quoted: Pair<Rule>) -> Result<Value, String> {
                 s.push_str(pair.into_span().as_str());
                 Ok(s)
             }
-            Rule::esc => {
-                let mut esc = pair.into_span().as_str();
-                let code = esc.get(2..).unwrap();
-                match esc.chars().nth(1).unwrap() {
-                    'r' => Ok('\r'),
-                    'n' => Ok('\n'),
-                    't' => Ok('\t'),
-                    c if c == '\\' || c == '\'' || c == '\"' => Ok(c),
-                    '0' => Ok(char::from(u8::from_str_radix(code, 8).unwrap())),
-                    'x' => Ok(char::from(u8::from_str_radix(code, 16).unwrap())),
-                    'u' | 'U' => from_u32(u32::from_str_radix(code, 16).unwrap())
-                        .ok_or_else(|| "Invalid unicode".to_owned()),
-                    _ => unreachable!(),
-                }.map(|c| {
-                    s.push(c);
-                    s
-                })
-            }
+            Rule::esc => unescape(pair.into_span().as_str()).map(|c| {
+                s.push(c);
+                s
+            }),
             _ => unreachable!(),
         }).map(Value::String)
+}
+
+fn unescape(s: &str) -> Result<char, String> {
+    let code = s.get(2..).unwrap();
+    match s.chars().nth(1).unwrap() {
+        'r' => Ok('\r'),
+        'n' => Ok('\n'),
+        't' => Ok('\t'),
+        c if c == '\\' || c == '\'' || c == '\"' => Ok(c),
+        '0' => Ok(char::from(u8::from_str_radix(code, 8).unwrap())),
+        'x' => Ok(char::from(u8::from_str_radix(code, 16).unwrap())),
+        'u' | 'U' => from_u32(u32::from_str_radix(code, 16).unwrap())
+            .ok_or_else(|| "Invalid unicode".to_owned()),
+        _ => unreachable!(),
+    }
 }
 
 fn mk_template<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) {
@@ -211,23 +232,29 @@ fn mk_template<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) {
 
 fn apply_function<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, String> {
     let mut iter = pair.into_inner();
-    let name = iter.next().unwrap().as_str();
-    mk_list(iter.next().unwrap(), state).and_then(|args| match name {
-        "apply" => args[0]
-            .as_str()
-            .ok_or_else(|| "Template name isn't a string".to_owned())
-            .and_then(|name| apply_template(name, &args[1..], state)),
-        "arg" => match args.len() {
-            1 => args[0]
+    let name = iter.next().unwrap();
+    if name.as_str() == "$" {
+        let name = mk_value(iter.next().unwrap(), state).and_then(String::from_value)?;
+        apply_template(&name, &[], state)
+    } else {
+        let name = mk_value(name, state).and_then(String::from_value)?;
+        mk_list(iter.next().unwrap(), state).and_then(|args| match name.as_ref() {
+            "apply" => args[0]
                 .as_str()
-                .ok_or(())
-                .and_then(|arg| arg.parse::<usize>().map_err(|_| ()))
-                .and_then(|n| state.args.get(n).ok_or(()))
-                .map(|v| v.clone()),
-            _ => Err(()),
-        }.map_err(|_| "arg(n): bad argument n".to_owned()),
-        _ => functions::apply(name, &args[0..]),
-    })
+                .ok_or_else(|| "Template name isn't a string".to_owned())
+                .and_then(|name| apply_template(name, &args[1..], state)),
+            "arg" => match args.len() {
+                1 => args[0]
+                    .as_str()
+                    .ok_or(())
+                    .and_then(|arg| arg.parse::<usize>().map_err(|_| ()))
+                    .and_then(|n| state.args.get(n).ok_or(()))
+                    .map(|v| v.clone()),
+                _ => Err(()),
+            }.map_err(|_| "arg(n): bad argument n".to_owned()),
+            _ => functions::apply(&name, &args[0..]),
+        })
+    }
 }
 
 fn apply_template(name: &str, args: &[Value], state: &mut State) -> Result<Value, String> {
@@ -340,6 +367,23 @@ mod tests {
     }
 
     #[test]
+    fn bare() {
+        vec![
+            ("a abcABC123", r#""a" "abcABC123""#),
+            (r#"a \{\}\[\]\(\)\ \,"#, r#""a" "{}[]() ,""#),
+            (r#"a \x20"#, r#""a" " ""#),
+            (r#"a \040"#, r#""a" " ""#),
+            (r#"a \u0020"#, r#""a" " ""#),
+            (r#"a \U00000020"#, r#""a" " ""#),
+            (r#"a Ψฒ≨🚲"#, r#""a" "Ψฒ≨🚲""#),
+            (r#"a \{b\ c\}"#, r#""a" "{b c}""#),
+        ].iter()
+        .for_each(|(a, b)| {
+            assert_eq!(&parse_noc::<Value>(a).unwrap().as_noc_string(), b);
+        });
+    }
+
+    #[test]
     fn test_quoted() {
         vec![
             (r#"a "\x20""#, r#""a" " ""#),
@@ -424,20 +468,92 @@ mod tests {
         vec![
             ("a 1 + 1", r#""a" "2""#),
             ("a 1 - -1", r#""a" "2""#),
-            ("a 1 * -10", r#""a" "-10""#),
+            ("a 1  *  -10", r#""a" "-10""#),
             ("a \"-1\" * 10", r#""a" "-10""#),
-            ("a (2 + 3)*4", r#""a" "20""#),
-            ("a 2+3*4", r#""a" "14""#),
+            ("a (2 + 3) * 4", r#""a" "20""#),
+            ("a 2 + 3 * 4", r#""a" "14""#),
             ("a 180 / 3.14", r#""a" "57.324840764331206""#),
             ("a 1 / 2", r#""a" "0.5""#),
             ("a 1 \\ 2", r#""a" "0""#),
             ("a 5 % 2", r#""a" "1""#),
             ("a 10 ^ 2", r#""a" "100""#),
-            ("a 10 ^ (2+1)", r#""a" "1000""#),
+            ("a 10 ^ (2 + 1)", r#""a" "1000""#),
             ("a 10 ^ -1", r#""a" "0.1""#),
         ].iter()
         .for_each(|(a, b)| {
             assert_eq!(&parse_noc::<Value>(a).unwrap().as_noc_string(), b);
+        });
+    }
+
+    #[test]
+    fn calculate_fail_missing_whitespace() {
+        // these don't fail but behave somewhat unexpectedly
+        vec![
+            ("a 1+1", r#"a "1+1""#),
+            ("a 1 --1", r#"a{1 "--1"}"#),
+            ("a 1*  -10", r#"a {"1*" "-10"}"#),
+            (r#"a "-1"*10"#, r#"a{"-1" "*10"}"#),
+        ].iter()
+        .for_each(|(a, b)| {
+            assert_eq!(
+                parse_noc::<Value>(a).unwrap(),
+                parse_noc::<Value>(b).unwrap(),
+            )
+        });
+    }
+
+    #[test]
+    fn comments() {
+        vec![
+            ("a {} # comment", "a {}"),
+            ("a { # comment\n}", "a {}"),
+            ("a [] #comment", "a []"),
+            ("a test #comment", "a test"),
+            ("a test#comment", "a test"),
+            ("a [1 #comment\n, 2]", "a [1,2]"),
+            ("a {b c#comment\n}", "a {b c}"),
+            ("\n# comment\na {\n#comment\n}", "a{}"),
+        ].iter()
+        .for_each(|(a, b)| {
+            assert_eq!(
+                parse_noc::<Value>(a).unwrap(),
+                parse_noc::<Value>(b).unwrap()
+            );
+        });
+    }
+
+    #[test]
+    fn templates() {
+        vec![
+            ("let(t, 1), a apply(t)", "a 1"),
+            ("let(t, 1), a $t", "a 1"),
+            ("let(t, 1), a $t + 1", "a 2"),
+        ].iter()
+        .for_each(|(a, b)| {
+            assert_eq!(
+                parse_noc::<Value>(a).unwrap(),
+                parse_noc::<Value>(b).unwrap()
+            );
+        });
+    }
+
+    #[test]
+    fn functions() {
+        vec![
+            ("a add(1, 1)", "a 2"),
+            ("let(t, 1), a add($t, 1)", "a 2"),
+            ("a subtract(1, 1)", "a 0"),
+            ("let(t, 1), a subtract($t, 1)", "a 0"),
+            ("a divide(1, 1)", "a 1"),
+            ("let(t, 1), a divide($t, $t)", "a 1"),
+            ("a multiply(2, 2)", "a 4"),
+            ("let(t, 2), a add($t, $t)", "a 4"),
+        ].iter()
+        .for_each(|(a, b)| {
+            assert_eq!(
+                parse_noc::<Value>(a).unwrap(),
+                parse_noc::<Value>(b).unwrap()
+            );
         });
     }
 }

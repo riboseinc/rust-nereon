@@ -28,6 +28,12 @@ use std::u32;
 pub fn apply(name: &str, args: &[Value]) -> Result<Value, String> {
     match name {
         "add" => add(args),
+        "subtract" => subtract(args),
+        "divide" => divide(args),
+        "multiply" => multiply(args),
+        "power" => power(args),
+        "intdiv" => intdiv(args),
+        "modulus" => modulus(args),
         _ => Err("No such function".to_owned()),
     }
 }

@@ -1,5 +1,8 @@
-whitespace = _{ " " | "\t" }
-sep = _{ "," | "\n" | "\r" }
+WHITESPACE = _{ " " | "\t" }
+COMMENT = _{ "#" ~ (!NEWLINE ~ ANY)* }
+
+sep = _{ "," | NEWLINE }
+
 plus = { "+" }
 minus = { "-" }
 times = { "*" }
@@ -8,10 +11,11 @@ intdiv = { "\\" }
 modulus = { "%" }
 power = { "^" }
 quote = _{ "\"" }
-infix = _{ plus | minus | times | divide | intdiv | modulus | power }
+infix = _{ WHITESPACE+ ~ (plus | minus | times | divide | intdiv | modulus | power) ~ WHITESPACE+ }
+
 backslash = _{"\\" }
-oct = _{ '0'..'7' }
-hex = _{ '0'..'9' | 'a'..'f' | 'A'..'F' }
+oct = _{ ASCII_OCT_DIGIT }
+hex = _{ ASCII_HEX_DIGIT }
 esc = @{
     "\\" ~ ("n" | "r" | "t" | "\\" | "\'" | "\"")
   | "\\0" ~ oct ~ oct
@@ -19,23 +23,31 @@ esc = @{
   | "\\U" ~ hex{8}
   | "\\u" ~ hex{4}
 }
-quoted_chars = @{ (!quote ~ !backslash ~ any)+ }
+
+quoted_chars = @{ (!quote ~ !backslash ~ ANY)+ }
 quoted_string = ${ (esc | quoted_chars)* }
-bare_string = @{ minus? ~ ('a'..'z' | 'A'..'Z' | '0'..'9' | "." | "_" )+ }
-function = ${ bare_string ~ "(" ~ list ~ ")" }
-value = {
+
+special = { "{" | "}" | "(" | ")" | "[" | "]" | " " | "," | "$" | "#" }
+special_esc = @{ "\\" ~ special }
+
+bare_chars = @{ (!quote ~ !backslash ~ !special ~ !COMMENT ~ !NEWLINE ~ ANY)+ }
+bare_string = ${ (special_esc | esc | bare_chars)+ }
+
+dollar = { "$" }
+function = ${ (bare_string ~ "(" ~ list ~ ")" | dollar ~ bare_string) }
+value = !{
     function
   | bare_string
   | quote ~ quoted_string ~ quote
   | "(" ~ expression ~ ")"
-  | "{" ~ dict ~ "}"
+  | "{" ~ table ~ "}"
   | "[" ~ list ~ "]"
 }
 template = { "let(" ~ sep* ~ (bare_string | quoted_string) ~ sep* ~ expression ~ sep* ~ ")" }
-expression = { value ~ (infix ~ value)* }
+expression = ${ value ~ (infix ~ value)* }
 exp_list = _{ ((template | expression) ~ sep ~ exp_list | sep ~ exp_list | (template | expression))? }
 key_value = { expression{2,} }
 kv_list = _{((template | key_value) ~ sep ~ kv_list | sep ~ kv_list | (template | key_value))? }
 list = !{ exp_list }
-dict = !{ kv_list }
-root = _{ dict ~ eoi }
+table = !{ kv_list }
+root = _{ table ~ EOI }

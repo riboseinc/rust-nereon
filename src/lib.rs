@@ -218,14 +218,12 @@ where
 
     for (n, o) in options.iter() {
         let mut arg = clap::Arg::with_name(n.as_str());
-        if let Some(ref flags) = o.flags {
-            for f in flags {
-                match f.as_ref() {
-                    "required" => arg = arg.required(true),
-                    "multiple" => arg = arg.multiple(true),
-                    "takesvalue" => arg = arg.takes_value(true),
-                    _ => panic!("No such argument flag ({})", f),
-                }
+        for f in o.flags.iter() {
+            match f.as_ref() {
+                "required" => arg = arg.required(true),
+                "multiple" => arg = arg.multiple(true),
+                "takesvalue" => arg = arg.takes_value(true),
+                _ => panic!("No such argument flag ({})", f),
             }
         }
         if let Some(ref s) = o.short {
@@ -284,6 +282,11 @@ where
                             .lookup(key_to_strs(&option))
                             .map_or_else(|| option.default.clone().map(Value::from), |_| None)
                     })
+            } else if option.flags.iter().any(|ref f| f.as_str() == "multiple") {
+                matches
+                    .values_of_os(name)
+                    .map(|vs| Value::from(vs.collect::<Vec<_>>()))
+                    .or_else(|| option.default_arg.clone().map(Value::from))
             } else {
                 matches
                     .value_of_os(name)

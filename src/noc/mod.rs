@@ -556,4 +556,33 @@ mod tests {
             );
         });
     }
+
+    #[test]
+    fn concat() {
+        vec![
+            ("a concat(a, b, c)", "a abc"),
+            ("a concat()", "a \"\""),
+            ("a concat(a)", "a a"),
+        ].iter()
+        .for_each(|(a, b)| {
+            assert_eq!(
+                parse_noc::<Value>(a).unwrap(),
+                parse_noc::<Value>(b).unwrap()
+            );
+        });
+    }
+    #[test]
+    fn join() {
+        vec![
+            ("a join(., a, b, c)", "a a.b.c"),
+            ("a join(.)", "a \"\""),
+            ("a join(., a)", "a a"),
+        ].iter()
+        .for_each(|(a, b)| {
+            assert_eq!(
+                parse_noc::<Value>(a).unwrap(),
+                parse_noc::<Value>(b).unwrap()
+            );
+        });
+    }
 }

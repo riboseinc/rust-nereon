@@ -34,6 +34,8 @@ pub fn apply(name: &str, args: &[Value]) -> Result<Value, String> {
         "power" => power(args),
         "intdiv" => intdiv(args),
         "modulus" => modulus(args),
+        "concat" => concat(args),
+        "join" => join(args),
         _ => Err("No such function".to_owned()),
     }
 }
@@ -94,6 +96,34 @@ pub fn modulus(args: &[Value]) -> Result<Value, String> {
         .map(|(lhs, rhs)| (lhs % rhs).to_string())
         .map_err(|_| "Modulus requires two integer arguments".to_owned())
         .map(Value::String)
+}
+
+fn concat(args: &[Value]) -> Result<Value, String> {
+    args.iter()
+        .try_fold(String::new(), |mut s, a| {
+            a.as_str().map(|a| {
+                s.push_str(a);
+                s
+            })
+        }).map(Value::String)
+        .ok_or_else(|| "Concat only takes string arguments".to_owned())
+}
+
+fn join(args: &[Value]) -> Result<Value, String> {
+    args.iter()
+        .try_fold(Vec::new(), |mut v, a| {
+            a.as_str().map(|a| {
+                v.push(a);
+                v
+            })
+        }).ok_or_else(|| "Join only takes string arguments".to_owned())
+        .and_then(|strs| {
+            if strs.is_empty() {
+                Err("Not enough arguments to join".to_owned())
+            } else {
+                Ok(Value::String(strs[1..].join(strs[0])))
+            }
+        })
 }
 
 fn convert<T: FromStr>(args: &[Value]) -> Result<(T, T), ()> {

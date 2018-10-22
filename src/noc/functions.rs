@@ -21,11 +21,11 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-use super::Value;
+use super::{Error, Value};
 use std::str::FromStr;
 use std::u32;
 
-pub fn apply(name: &str, args: &[Value]) -> Result<Value, String> {
+pub fn apply(name: &str, args: &[Value]) -> Result<Value, Error> {
     match name {
         "add" => add(args),
         "subtract" => subtract(args),
@@ -36,42 +36,42 @@ pub fn apply(name: &str, args: &[Value]) -> Result<Value, String> {
         "modulus" => modulus(args),
         "concat" => concat(args),
         "join" => join(args),
-        _ => Err("No such function".to_owned()),
+        _ => Err(error("No such function")),
     }
 }
 
-pub fn add(args: &[Value]) -> Result<Value, String> {
+pub fn add(args: &[Value]) -> Result<Value, Error> {
     convert::<i64>(args)
         .map(|(lhs, rhs)| (lhs + rhs).to_string())
         .or_else(|_| convert::<f64>(args).map(|(lhs, rhs)| (lhs + rhs).to_string()))
-        .map_err(|_| "Addition requires two numeric arguments".to_owned())
+        .map_err(|_| error("Addition requires two numeric arguments"))
         .map(Value::String)
 }
 
-pub fn subtract(args: &[Value]) -> Result<Value, String> {
+pub fn subtract(args: &[Value]) -> Result<Value, Error> {
     convert::<i64>(args)
         .map(|(lhs, rhs)| (lhs - rhs).to_string())
         .or_else(|_| convert::<f64>(args).map(|(lhs, rhs)| (lhs - rhs).to_string()))
-        .map_err(|_| "Subtraction requires two numeric arguments".to_owned())
+        .map_err(|_| error("Subtraction requires two numeric arguments"))
         .map(Value::String)
 }
 
-pub fn multiply(args: &[Value]) -> Result<Value, String> {
+pub fn multiply(args: &[Value]) -> Result<Value, Error> {
     convert::<i64>(args)
         .map(|(lhs, rhs)| (lhs * rhs).to_string())
         .or_else(|_| convert::<f64>(args).map(|(lhs, rhs)| (lhs * rhs).to_string()))
-        .map_err(|_| "Multiplication requires two numeric arguments".to_owned())
+        .map_err(|_| error("Multiplication requires two numeric arguments"))
         .map(Value::String)
 }
 
-pub fn divide(args: &[Value]) -> Result<Value, String> {
+pub fn divide(args: &[Value]) -> Result<Value, Error> {
     convert::<f64>(args)
         .map(|(lhs, rhs)| (lhs / rhs).to_string())
-        .map_err(|_| "Division requires two numeric arguments".to_owned())
+        .map_err(|_| error("Division requires two numeric arguments"))
         .map(Value::String)
 }
 
-pub fn power(args: &[Value]) -> Result<Value, String> {
+pub fn power(args: &[Value]) -> Result<Value, Error> {
     convert::<i64>(args)
         .and_then(|(lhs, rhs)| {
             if rhs > 0 && rhs <= i64::from(u32::MAX) {
@@ -80,25 +80,25 @@ pub fn power(args: &[Value]) -> Result<Value, String> {
                 Err(())
             }
         }).or_else(|_| convert::<f64>(args).map(|(lhs, rhs)| lhs.powf(rhs).to_string()))
-        .map_err(|_| "Power requires two numeric arguments".to_owned())
+        .map_err(|_| error("Power requires two numeric arguments"))
         .map(Value::String)
 }
 
-pub fn intdiv(args: &[Value]) -> Result<Value, String> {
+pub fn intdiv(args: &[Value]) -> Result<Value, Error> {
     convert::<i64>(args)
         .map(|(lhs, rhs)| (lhs / rhs).to_string())
-        .map_err(|_| "Integer division requires two integer arguments".to_owned())
+        .map_err(|_| error("Integer division requires two integer arguments"))
         .map(Value::String)
 }
 
-pub fn modulus(args: &[Value]) -> Result<Value, String> {
+pub fn modulus(args: &[Value]) -> Result<Value, Error> {
     convert::<i64>(args)
         .map(|(lhs, rhs)| (lhs % rhs).to_string())
-        .map_err(|_| "Modulus requires two integer arguments".to_owned())
+        .map_err(|_| error("Modulus requires two integer arguments"))
         .map(Value::String)
 }
 
-fn concat(args: &[Value]) -> Result<Value, String> {
+fn concat(args: &[Value]) -> Result<Value, Error> {
     args.iter()
         .try_fold(String::new(), |mut s, a| {
             a.as_str().map(|a| {
@@ -106,20 +106,20 @@ fn concat(args: &[Value]) -> Result<Value, String> {
                 s
             })
         }).map(Value::String)
-        .ok_or_else(|| "Concat only takes string arguments".to_owned())
+        .ok_or_else(|| error("Concat only takes string arguments"))
 }
 
-fn join(args: &[Value]) -> Result<Value, String> {
+fn join(args: &[Value]) -> Result<Value, Error> {
     args.iter()
         .try_fold(Vec::new(), |mut v, a| {
             a.as_str().map(|a| {
                 v.push(a);
                 v
             })
-        }).ok_or_else(|| "Join only takes string arguments".to_owned())
+        }).ok_or_else(|| error("Join only takes string arguments"))
         .and_then(|strs| {
             if strs.is_empty() {
-                Err("Not enough arguments to join".to_owned())
+                Err(error("Not enough arguments to join"))
             } else {
                 Ok(Value::String(strs[1..].join(strs[0])))
             }
@@ -142,4 +142,11 @@ fn convert<T: FromStr>(args: &[Value]) -> Result<(T, T), ()> {
                 .and_then(|lhs| rhs.parse::<T>().map(|rhs| (lhs, rhs)))
                 .map_err(|_| ())
         })
+}
+
+fn error(reason: &'static str) -> Error {
+    Error::ParseError {
+        reason,
+        positions: Vec::new(),
+    }
 }

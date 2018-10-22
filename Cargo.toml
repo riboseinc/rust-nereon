@@ -17,7 +17,7 @@ clap = "2.32"
 lazy_static = "1.1"
 pest = "2.0"
 pest_derive = "2.0"
-nereon_derive = "0.4"
+nereon_derive = { path = "derive" }
 
 [dev-dependencies]
 toml = "0.4"

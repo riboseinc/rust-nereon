@@ -46,7 +46,7 @@ pub fn derive_from_value(input: TokenStream) -> TokenStream {
     };
     let gen = quote! {
         impl FromValue for #name {
-            fn from_value(mut v: Value) -> Result<Self, String> {
+            fn from_value(mut v: Value) -> Result<Self, Error> {
                 #body
             }
         }
@@ -64,24 +64,26 @@ fn body_from_from_value_struct(name: &syn::Ident, data: &syn::DataStruct) -> Tok
 
 fn body_from_from_value_normal_struct(name: &syn::Ident, fields: &syn::Fields) -> TokenStream2 {
     let fields: TokenStream2 = named_fields(fields);
-    let err = format!("Cannot convert to {}, not a Table", name);
     quote! {
         match v {
             Value::Table(mut v) => Ok(#name { #fields }),
-            _ => Err(#err.to_owned())
+            Value::List(_) => Err(Error::ConversionError {
+                node: Vec::new(), expected: "table", found: "list"
+            }),
+            Value::String(_) => Err(Error::ConversionError {
+                node: Vec::new(), expected: "table", found: "string"
+            }),
         }
     }
 }
 
-fn body_from_from_value_tuple_struct(
-    name: &syn::Ident,
-    fields: &syn::Fields,
-) -> TokenStream2 {
-    let fields = fields.iter().fold(quote!{}, |q, _| quote! {
-        #q
-        Value::convert(v.next())?,
+fn body_from_from_value_tuple_struct(name: &syn::Ident, fields: &syn::Fields) -> TokenStream2 {
+    let fields = fields.iter().fold(quote!{}, |q, _| {
+        quote! {
+            #q
+            Value::convert(v.next())?,
+        }
     });
-    let err = format!("Cannot convert to {}, not a List", name);
     quote! {
         match v {
             Value::List(mut v) => {
@@ -90,7 +92,12 @@ fn body_from_from_value_tuple_struct(
                     #fields
                 ))
             }
-            _ => Err(#err.to_owned()),
+            Value::Table(_) => Err(Error::ConversionError {
+                node: Vec::new(), expected: "list", found: "table"
+            }),
+            Value::String(_) => Err(Error::ConversionError {
+                node: Vec::new(), expected: "list", found: "string"
+            }),
         }
     }
 }
@@ -99,9 +106,6 @@ fn body_from_from_value_enum(name: &syn::Ident, data: &syn::DataEnum) -> TokenSt
     let branches = data.variants.iter().fold(quote!{}, |q, data| {
         let vname = &data.ident;
         let match_name = (&data.ident).to_string().to_lowercase();
-        let unit_err = format!("Key \"{}\" doesn't expect a value", match_name);
-        let list_err = format!("Key \"{}\" expects a List value", match_name);
-        let table_err = format!("Key \"{}\" expects a Table value", match_name);
         let branch = match data.fields {
             syn::Fields::Named(_) => {
                 let fields = named_fields(&data.fields);
@@ -110,14 +114,24 @@ fn body_from_from_value_enum(name: &syn::Ident, data: &syn::DataEnum) -> TokenSt
                         Some(Value::Table(mut v)) => Ok(#name::#vname {
                             #fields
                         }),
-                        _ => Err(#table_err.to_owned()),
+                        Some(Value::List(_)) => Err(Error::ConversionError {
+                            node: Vec::new(), expected: "table", found: "list"
+                        }),
+                        Some(Value::String(_)) => Err(Error::ConversionError {
+                            node: Vec::new(), expected: "table", found: "string"
+                        }),
+                        None => Err(Error::ConversionError {
+                            node: Vec::new(), expected: "table", found: "nothing"
+                        }),
                     }
                 }
             }
             syn::Fields::Unnamed(_) => {
-                let fields = data.fields.iter().fold(quote!{}, |q, _| quote! {
-                    #q
-                    Value::convert(v.next())?,
+                let fields = data.fields.iter().fold(quote!{}, |q, _| {
+                    quote! {
+                        #q
+                        Value::convert(v.next())?,
+                    }
                 });
                 quote! {
                     match v {
@@ -127,16 +141,26 @@ fn body_from_from_value_enum(name: &syn::Ident, data: &syn::DataEnum) -> TokenSt
                                 #fields
                             ))
                         }
-                        _ => Err(#list_err.to_owned()),
+                        Some(Value::Table(_)) => Err(Error::ConversionError {
+                            node: Vec::new(), expected: "list", found: "table"
+                        }),
+                        Some(Value::String(_)) => Err(Error::ConversionError {
+                            node: Vec::new(), expected: "list", found: "string"
+                        }),
+                        None => Err(Error::ConversionError {
+                            node: Vec::new(), expected: "list", found: "nothing"
+                        }),
                     }
                 }
             }
             syn::Fields::Unit => quote! {
                 v.map_or_else(
                     || Ok(#name::#vname),
-                    |_| Err(#unit_err.to_owned()),
+                    |_| Err(Error::ConversionError {
+                        node: Vec::new(), expected: "nothing", found: "value"
+                    })
                 ),
-            },
+            }
         };
         quote! {
             #q
@@ -149,21 +173,27 @@ fn body_from_from_value_enum(name: &syn::Ident, data: &syn::DataEnum) -> TokenSt
             Value::Table(ref mut t) if t.len() == 1 => {
                 Ok(t.drain().next().map(|(k, v)| (k, Some(v))).unwrap())
             }
-            _ => Err("Not an enum Variant".to_owned()),
+            Value::Table(_) => Err(Error::ConversionError {
+                node: Vec::new(), expected: "string or single entry table", found: "multiple entry table"
+            }),
+            Value::List(_) => Err(Error::ConversionError {
+                node: Vec::new(), expected: "string or single entry table", found: "list"
+            }),
         }.and_then(|(n, v)| match n.as_ref() {
             #branches
-            _ => Err(format!("No such variant \"{}\"", n)),
+            _ => Err(Error::ConversionError {
+                node: Vec::new(), expected: "one of ... ", found: "something else"
+            }),
         })
     }
 }
 
 fn named_fields(data: &syn::Fields) -> TokenStream2 {
-    data.iter()
-        .fold(quote!{}, |q, f| {
-            let n = f.ident.as_ref().unwrap();
-            quote! {
-                #q
-                #n: Value::convert(v.remove(stringify!(#n)))?,
-            }
-        })
+    data.iter().fold(quote!{}, |q, f| {
+        let n = f.ident.as_ref().unwrap();
+        quote! {
+            #q
+            #n: Value::convert(v.remove(stringify!(#n)))?,
+        }
+    })
 }

@@ -28,8 +28,7 @@ extern crate nereon;
 
 #[cfg(test)]
 mod tests {
-    extern crate nereon;
-    use self::nereon::{parse_noc, FromValue, Value};
+    use super::nereon::{parse_noc, Error, FromValue, Value};
 
     #[test]
     fn test_string_struct() {

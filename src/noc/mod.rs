@@ -24,15 +24,18 @@
 #[cfg(debug_assertions)]
 const _GRAMMAR: &str = include_str!("pest");
 
+use pest::error::LineColLocation;
 use pest::iterators::Pair;
 use pest::prec_climber::{Assoc, Operator, PrecClimber};
 use pest::Parser;
 use std::char::from_u32;
 use std::collections::HashMap;
 
+mod error;
 mod functions;
 mod value;
 
+pub use self::error::Error;
 pub use self::value::{FromValue, Value};
 
 #[derive(Debug)]
@@ -78,13 +81,18 @@ lazy_static! {
 ///
 /// assert_eq!(parse_noc(noc), Ok(expected));
 /// ```
-pub fn parse_noc<T>(input: &str) -> Result<T, String>
+pub fn parse_noc<T>(input: &str) -> Result<T, Error>
 where
     T: FromValue,
 {
     NocParser::parse(Rule::root, input)
-        .map_err(|e| format!("{:?}", e))
-        .and_then(|mut pairs| {
+        .map_err(|e| Error::ParseError {
+            reason: "Bad root node",
+            positions: vec![match e.line_col {
+                LineColLocation::Pos(p) => p,
+                LineColLocation::Span(p, _) => p,
+            }],
+        }).and_then(|mut pairs| {
             mk_value(
                 pairs.next().unwrap(),
                 &mut State {
@@ -95,7 +103,7 @@ where
         }).and_then(T::from_value)
 }
 
-fn mk_value<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, String> {
+fn mk_value<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, Error> {
     match pair.as_rule() {
         Rule::table => mk_table(pair, state),
         Rule::list => mk_list(pair, state).map(Value::List),
@@ -107,7 +115,7 @@ fn mk_value<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, St
     }
 }
 
-fn mk_table<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, String> {
+fn mk_table<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, Error> {
     pair.into_inner()
         .try_fold(Value::Table(HashMap::new()), |dict, pair| {
             match pair.as_rule() {
@@ -136,7 +144,7 @@ fn mk_table<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, St
         })
 }
 
-fn mk_list<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Vec<Value>, String> {
+fn mk_list<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Vec<Value>, Error> {
     pair.into_inner()
         .try_fold(Vec::new(), |mut list, pair| match pair.as_rule() {
             Rule::expression => mk_value(pair, state).map(|value| {
@@ -151,7 +159,7 @@ fn mk_list<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Vec<Value>
         })
 }
 
-fn evaluate<'a>(expression: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, String> {
+fn evaluate<'a>(expression: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, Error> {
     CLIMBER.climb(
         expression.into_inner(),
         |value| mk_value(value.into_inner().next().unwrap(), state),
@@ -171,19 +179,30 @@ fn evaluate<'a>(expression: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Val
     )
 }
 
-fn mk_bare(bare: Pair<Rule>) -> Result<Value, String> {
+fn mk_bare(bare: Pair<Rule>) -> Result<Value, Error> {
     bare.into_inner()
         .try_fold(String::new(), |mut s, pair| match pair.as_rule() {
             Rule::bare_chars => {
                 s.push_str(pair.into_span().as_str());
                 Ok(s)
             }
-            Rule::esc => unescape(pair.into_span().as_str()).map(|c| {
-                s.push(c);
-                s
-            }),
+            Rule::esc => {
+                let span = pair.into_span();
+                unescape(span.as_str()).map_or_else(
+                    || {
+                        Err(Error::ParseError {
+                            reason: "Bad unicode character",
+                            positions: vec![span.start_pos().line_col()],
+                        })
+                    },
+                    |c| {
+                        s.push(c);
+                        Ok(s)
+                    },
+                )
+            }
             Rule::special_esc => {
-                let mut esc = pair.into_span().as_str();
+                let esc = pair.into_span().as_str();
                 s.push(esc.chars().nth(1).unwrap());
                 Ok(s)
             }
@@ -191,7 +210,7 @@ fn mk_bare(bare: Pair<Rule>) -> Result<Value, String> {
         }).map(Value::String)
 }
 
-fn mk_quoted(quoted: Pair<Rule>) -> Result<Value, String> {
+fn mk_quoted(quoted: Pair<Rule>) -> Result<Value, Error> {
     quoted
         .into_inner()
         .try_fold(String::new(), |mut s, pair| match pair.as_rule() {
@@ -199,25 +218,35 @@ fn mk_quoted(quoted: Pair<Rule>) -> Result<Value, String> {
                 s.push_str(pair.into_span().as_str());
                 Ok(s)
             }
-            Rule::esc => unescape(pair.into_span().as_str()).map(|c| {
-                s.push(c);
-                s
-            }),
+            Rule::esc => {
+                let span = pair.into_span();
+                unescape(span.as_str()).map_or_else(
+                    || {
+                        Err(Error::ParseError {
+                            reason: "Bad unicode character",
+                            positions: vec![span.start_pos().line_col()],
+                        })
+                    },
+                    |c| {
+                        s.push(c);
+                        Ok(s)
+                    },
+                )
+            }
             _ => unreachable!(),
         }).map(Value::String)
 }
 
-fn unescape(s: &str) -> Result<char, String> {
+fn unescape(s: &str) -> Option<char> {
     let code = s.get(2..).unwrap();
     match s.chars().nth(1).unwrap() {
-        'r' => Ok('\r'),
-        'n' => Ok('\n'),
-        't' => Ok('\t'),
-        c if c == '\\' || c == '\'' || c == '\"' => Ok(c),
-        '0' => Ok(char::from(u8::from_str_radix(code, 8).unwrap())),
-        'x' => Ok(char::from(u8::from_str_radix(code, 16).unwrap())),
-        'u' | 'U' => from_u32(u32::from_str_radix(code, 16).unwrap())
-            .ok_or_else(|| "Invalid unicode".to_owned()),
+        'r' => Some('\r'),
+        'n' => Some('\n'),
+        't' => Some('\t'),
+        c if c == '\\' || c == '\'' || c == '\"' => Some(c),
+        '0' => Some(char::from(u8::from_str_radix(code, 8).unwrap())),
+        'x' => Some(char::from(u8::from_str_radix(code, 16).unwrap())),
+        'u' | 'U' => from_u32(u32::from_str_radix(code, 16).unwrap()),
         _ => unreachable!(),
     }
 }
@@ -230,7 +259,8 @@ fn mk_template<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) {
     state.templates.push((name, iter.next().unwrap()));
 }
 
-fn apply_function<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, String> {
+fn apply_function<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, Error> {
+    let pos = pair.as_span().start_pos().line_col();
     let mut iter = pair.into_inner();
     let name = iter.next().unwrap();
     if name.as_str() == "$" {
@@ -241,29 +271,47 @@ fn apply_function<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Val
         mk_list(iter.next().unwrap(), state).and_then(|args| match name.as_ref() {
             "apply" => args[0]
                 .as_str()
-                .ok_or_else(|| "Template name isn't a string".to_owned())
-                .and_then(|name| apply_template(name, &args[1..], state)),
+                .ok_or_else(|| Error::ParseError {
+                    reason: "Template name isn't a string",
+                    positions: vec![pos],
+                }).and_then(|name| apply_template(name, &args[1..], state)),
             "arg" => match args.len() {
                 1 => args[0]
                     .as_str()
-                    .ok_or(())
-                    .and_then(|arg| arg.parse::<usize>().map_err(|_| ()))
-                    .and_then(|n| state.args.get(n).ok_or(()))
-                    .map(|v| v.clone()),
-                _ => Err(()),
-            }.map_err(|_| "arg(n): bad argument n".to_owned()),
+                    .and_then(|n| n.parse::<usize>().ok())
+                    .ok_or(Error::ParseError {
+                        reason: "Argument should be an integer",
+                        positions: vec![pos],
+                    }).and_then(|n| {
+                        state.args.get(n).map_or_else(
+                            || {
+                                Err(Error::ParseError {
+                                    reason: "No such argument",
+                                    positions: vec![pos],
+                                })
+                            },
+                            |v| Ok(v.clone()),
+                        )
+                    }),
+                _ => Err(Error::ParseError {
+                    reason: "Too many arguments",
+                    positions: vec![pos],
+                }),
+            },
             _ => functions::apply(&name, &args[0..]),
         })
     }
 }
 
-fn apply_template(name: &str, args: &[Value], state: &mut State) -> Result<Value, String> {
+fn apply_template(name: &str, args: &[Value], state: &mut State) -> Result<Value, Error> {
     state
         .templates
         .iter()
         .rposition(|(template_name, _)| template_name == name)
-        .ok_or_else(|| "No such template".to_owned())
-        .and_then(|idx| {
+        .ok_or_else(|| Error::ParseError {
+            reason: "No such template",
+            positions: vec![], //TODO
+        }).and_then(|idx| {
             let mut new_state = State {
                 templates: state.templates[0..idx].to_vec(),
                 args: args.to_vec(),

@@ -8,6 +8,6 @@ license = "BSD-2-Clause"
 exclude = ["/**/*~", "/**/.dir-locals.el"]
 
 [dependencies]
-nereon = "0.4"
-nereon_derive = "0.4"
+nereon = { path = ".." }
+nereon_derive = { path = "../derive" }
 tiny_http = "0.6"

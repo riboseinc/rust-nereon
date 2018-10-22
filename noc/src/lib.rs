@@ -28,7 +28,7 @@ extern crate tiny_http;
 
 mod artifacts;
 
-use nereon::{parse_noc, FromValue, Value};
+use nereon::{parse_noc, Error, FromValue, Value};
 use std::env;
 use std::io::Write;
 use std::io::{self, Read};

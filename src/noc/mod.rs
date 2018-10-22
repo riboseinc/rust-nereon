@@ -87,7 +87,7 @@ where
 {
     NocParser::parse(Rule::root, input)
         .map_err(|e| Error::ParseError {
-            reason: "Bad root node",
+            reason: "Syntax error",
             positions: vec![match e.line_col {
                 LineColLocation::Pos(p) => p,
                 LineColLocation::Span(p, _) => p,
@@ -322,9 +322,13 @@ fn apply_template(name: &str, args: &[Value], state: &mut State) -> Result<Value
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_noc, Value};
+    use super::{parse_noc, Error, Value};
     use std::collections::HashMap;
     use std::iter::FromIterator;
+
+    fn parse_error<T>(msg: &'static str, line: usize, clm: usize) -> Result<T, Error> {
+        Err(Error::parse_error(msg, vec![(line, clm)]))
+    }
 
     #[test]
     fn test_empty() {
@@ -336,7 +340,10 @@ mod tests {
 
     #[test]
     fn test_key_no_value() {
-        assert!(parse_noc::<Value>("fail").is_err());
+        assert_eq!(
+            parse_noc::<Value>("fail"),
+            parse_error("Syntax error", 1, 5)
+        );
     }
 
     #[test]
@@ -406,12 +413,18 @@ mod tests {
 
     #[test]
     fn test_bad_escape() {
-        assert!(parse_noc::<Value>(r#""key\n1" "value\1""#).is_err());
+        assert_eq!(
+            parse_noc::<Value>(r#""key\n1" "value\1""#),
+            parse_error("Syntax error", 1, 16)
+        );
     }
 
     #[test]
     fn test_unbalanced() {
-        assert!(parse_noc::<Value>("test {]").is_err());
+        assert_eq!(
+            parse_noc::<Value>("test {]"),
+            parse_error("Syntax error", 1, 7)
+        );
     }
 
     #[test]
@@ -447,12 +460,17 @@ mod tests {
     #[test]
     fn test_bad_unicode_parse() {
         vec![
-            r#"a "\x20"#,
-            r#"a "\04""#,
-            r#"a "\u020""#,
-            r#"a "\U00000g0""#,
+            (r#"a "\x20"#, 8),
+            (r#"a "\04""#, 4),
+            (r#"a "\u020""#, 4),
+            (r#"a "\U00000g0""#, 4),
         ].iter()
-        .for_each(|a| assert!(&parse_noc::<Value>(a).is_err()));
+        .for_each(|&(a, c)| {
+            assert_eq!(
+                parse_noc::<Value>(a),
+                parse_error("Syntax error", 1, c)
+            )
+        });
     }
 
     #[test]

@@ -30,7 +30,7 @@ pub enum Error {
         reason: &'static str,
     },
     ConversionError {
-        node: Vec<String>,
+        keys: Vec<&'static str>,
         expected: &'static str,
         found: &'static str,
     },
@@ -51,22 +51,61 @@ impl fmt::Display for Error {
                 }
             }
             Error::ConversionError {
-                node,
+                keys,
                 expected,
                 found,
             } => {
-                write!(f, "Expected {} but found {} while parsing the value for ", expected, found);
-                let mut it = node.iter().peekable();
+                write!(
+                    f,
+                    "Expected {} but found {} while parsing the value for ",
+                    expected, found
+                );
+                let mut it = keys.iter().peekable();
                 while it.peek().is_some() {
                     let k = it.next().unwrap();
                     if it.peek().is_some() {
-                        write!(f, "{}.", k);
+                        write!(f, "\"{}\", ", k);
                     } else {
-                        write!(f, "{}", k);
+                        write!(f, "\"{}\"", k);
                     }
                 }
             }
         }
         Ok(())
+    }
+}
+
+impl Error {
+    pub fn parse_error(msg: &'static str, line_col: Vec<(usize, usize)>) -> Self {
+        Error::ParseError {
+            reason: msg,
+            positions: line_col,
+        }
+    }
+
+    pub fn conversion_error(expected: &'static str, found: &'static str) -> Self {
+        Error::ConversionError {
+            keys: Vec::new(),
+            expected,
+            found,
+        }
+    }
+
+    pub fn unshift_key(self, key: &'static str) -> Self {
+        match self {
+            Error::ConversionError {
+                mut keys,
+                expected,
+                found,
+            } => {
+                keys.insert(0, key);
+                Error::ConversionError {
+                    keys,
+                    expected,
+                    found,
+                }
+            }
+            Error::ParseError { .. } => unreachable!(),
+        }
     }
 }

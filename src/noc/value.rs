@@ -458,11 +458,7 @@ pub trait FromValue<OK = Self> {
     // this is a kludge so missing Values can be converted
     // into None
     fn from_no_value() -> Result<OK, Error> {
-        Err(Error::ConversionError {
-            node: Vec::new(),
-            expected: "value",
-            found: "nothing",
-        })
+        Err(Error::conversion_error("value", "nothing"))
     }
 }
 
@@ -471,21 +467,11 @@ macro_rules! from_value_for {
         impl FromValue for $type {
             fn from_value(value: Value) -> Result<Self, Error> {
                 match value {
-                    Value::String(s) => {
-                        s.parse().map_err(|_| {
-                            Error::ConversionError {
-                                node: Vec::new(),
-                                expected: stringify!($type),
-                                found: "string",
-                            }
-                        })
-                    },
-                    Value::List(_) => Err(Error::ConversionError {
-                        node: Vec::new(), expected: "string", found: "list"
-                    }),
-                    Value::Table(_) => Err(Error::ConversionError {
-                        node: Vec::new(), expected: "string", found: "table"
-                    }),
+                    Value::String(s) => s
+                        .parse()
+                        .map_err(|_| Error::conversion_error(stringify!($type), "string")),
+                    Value::List(_) => Err(Error::conversion_error("string", "list")),
+                    Value::Table(_) => Err(Error::conversion_error("string", "table")),
                 }
             }
         }
@@ -513,16 +499,8 @@ impl FromValue for String {
     fn from_value(value: Value) -> Result<Self, Error> {
         match value {
             Value::String(s) => Ok(s),
-            Value::Table(_) => Err(Error::ConversionError {
-                node: Vec::new(),
-                expected: "string",
-                found: "table",
-            }),
-            Value::List(_) => Err(Error::ConversionError {
-                node: Vec::new(),
-                expected: "string",
-                found: "list",
-            }),
+            Value::Table(_) => Err(Error::conversion_error("string", "table")),
+            Value::List(_) => Err(Error::conversion_error("string", "list")),
         }
     }
 }
@@ -545,24 +523,14 @@ where
 {
     fn from_value(value: Value) -> Result<Self, Error> {
         match value {
-            Value::Table(mut d) => {
-                d.drain().try_fold(HashMap::default(), |mut m, (k, v)| {
-                    T::from_value(v).map(|v| {
-                        m.insert(k, v);
-                        m
-                    })
+            Value::Table(mut d) => d.drain().try_fold(HashMap::default(), |mut m, (k, v)| {
+                T::from_value(v).map(|v| {
+                    m.insert(k, v);
+                    m
                 })
-            },
-            Value::String(_) => Err(Error::ConversionError {
-                node: Vec::new(),
-                expected: "table",
-                found: "string",
             }),
-            Value::List(_) => Err(Error::ConversionError {
-                node: Vec::new(),
-                expected: "table",
-                found: "list",
-            }),
+            Value::String(_) => Err(Error::conversion_error("table", "string")),
+            Value::List(_) => Err(Error::conversion_error("table", "list")),
         }
     }
 
@@ -577,24 +545,14 @@ where
 {
     fn from_value(value: Value) -> Result<Self, Error> {
         match value {
-            Value::List(mut l) => {
-                l.drain(..).try_fold(Vec::new(), |mut m, v| {
-                    T::from_value(v).map(|v| {
-                        m.push(v);
-                        m
-                    })
+            Value::List(mut l) => l.drain(..).try_fold(Vec::new(), |mut m, v| {
+                T::from_value(v).map(|v| {
+                    m.push(v);
+                    m
                 })
-            },
-            Value::String(_) => Err(Error::ConversionError {
-                node: Vec::new(),
-                expected: "list",
-                found: "string",
             }),
-            Value::Table(_) => Err(Error::ConversionError {
-                node: Vec::new(),
-                expected: "list",
-                found: "table",
-            }),
+            Value::String(_) => Err(Error::conversion_error("list", "string")),
+            Value::Table(_) => Err(Error::conversion_error("list", "table")),
         }
     }
     fn from_no_value() -> Result<Self, Error> {

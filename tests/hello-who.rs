@@ -30,7 +30,7 @@ extern crate toml;
 #[macro_use]
 extern crate lazy_static;
 
-use nereon::{configure, Error, FromValue, Value};
+use nereon::{configure, ConversionError, FromValue, Value};
 use std::env;
 
 static CARGO: &str = include_str!("../Cargo.toml");

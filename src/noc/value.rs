@@ -21,12 +21,11 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+use noc::ConversionError;
 use std::collections::{BTreeMap, HashMap};
 use std::ffi::{OsStr, OsString};
 use std::hash::Hash;
 use std::iter::{self, FromIterator};
-
-use super::error::Error;
 
 /// Main `Value` enum with variants for strings, tables, and lists.
 ///
@@ -177,7 +176,7 @@ impl Value {
     /// let v = Value::from("42");
     /// assert_eq!(Value::convert(Some(v)), Ok(42));
     /// ```
-    pub fn convert<T: FromValue>(v: Option<Value>) -> Result<T, Error> {
+    pub fn convert<T: FromValue>(v: Option<Value>) -> Result<T, ConversionError> {
         v.map_or_else(T::from_no_value, T::from_value)
     }
 
@@ -454,24 +453,24 @@ impl Value {
 /// Implemnataions can be automatically derived by using the
 /// [`nereon_derive`](../nereon_derive/index.html) crate.
 pub trait FromValue<OK = Self> {
-    fn from_value(value: Value) -> Result<OK, Error>;
+    fn from_value(value: Value) -> Result<OK, ConversionError>;
     // this is a kludge so missing Values can be converted
     // into None
-    fn from_no_value() -> Result<OK, Error> {
-        Err(Error::conversion_error("value", "nothing"))
+    fn from_no_value() -> Result<OK, ConversionError> {
+        Err(ConversionError::new("value", "nothing"))
     }
 }
 
 macro_rules! from_value_for {
     ($type:ident) => {
         impl FromValue for $type {
-            fn from_value(value: Value) -> Result<Self, Error> {
+            fn from_value(value: Value) -> Result<Self, ConversionError> {
                 match value {
                     Value::String(s) => s
                         .parse()
-                        .map_err(|_| Error::conversion_error(stringify!($type), "string")),
-                    Value::List(_) => Err(Error::conversion_error("string", "list")),
-                    Value::Table(_) => Err(Error::conversion_error("string", "table")),
+                        .map_err(|_| ConversionError::new(stringify!($type), "string")),
+                    Value::List(_) => Err(ConversionError::new("string", "list")),
+                    Value::Table(_) => Err(ConversionError::new("string", "table")),
                 }
             }
         }
@@ -490,17 +489,17 @@ from_value_for!(f32);
 from_value_for!(f64);
 
 impl FromValue for Value {
-    fn from_value(value: Value) -> Result<Self, Error> {
+    fn from_value(value: Value) -> Result<Self, ConversionError> {
         Ok(value)
     }
 }
 
 impl FromValue for String {
-    fn from_value(value: Value) -> Result<Self, Error> {
+    fn from_value(value: Value) -> Result<Self, ConversionError> {
         match value {
             Value::String(s) => Ok(s),
-            Value::Table(_) => Err(Error::conversion_error("string", "table")),
-            Value::List(_) => Err(Error::conversion_error("string", "list")),
+            Value::Table(_) => Err(ConversionError::new("string", "table")),
+            Value::List(_) => Err(ConversionError::new("string", "list")),
         }
     }
 }
@@ -509,10 +508,10 @@ impl<T> FromValue for Option<T>
 where
     T: FromValue,
 {
-    fn from_value(value: Value) -> Result<Self, Error> {
+    fn from_value(value: Value) -> Result<Self, ConversionError> {
         Ok(Some(T::from_value(value)?))
     }
-    fn from_no_value() -> Result<Self, Error> {
+    fn from_no_value() -> Result<Self, ConversionError> {
         Ok(None)
     }
 }
@@ -521,7 +520,7 @@ impl<T, S: ::std::hash::BuildHasher + Default> FromValue for HashMap<String, T, 
 where
     T: FromValue,
 {
-    fn from_value(value: Value) -> Result<Self, Error> {
+    fn from_value(value: Value) -> Result<Self, ConversionError> {
         match value {
             Value::Table(mut d) => d.drain().try_fold(HashMap::default(), |mut m, (k, v)| {
                 T::from_value(v).map(|v| {
@@ -529,12 +528,12 @@ where
                     m
                 })
             }),
-            Value::String(_) => Err(Error::conversion_error("table", "string")),
-            Value::List(_) => Err(Error::conversion_error("table", "list")),
+            Value::String(_) => Err(ConversionError::new("table", "string")),
+            Value::List(_) => Err(ConversionError::new("table", "list")),
         }
     }
 
-    fn from_no_value() -> Result<Self, Error> {
+    fn from_no_value() -> Result<Self, ConversionError> {
         Ok(HashMap::default())
     }
 }
@@ -543,7 +542,7 @@ impl<T> FromValue for Vec<T>
 where
     T: FromValue,
 {
-    fn from_value(value: Value) -> Result<Self, Error> {
+    fn from_value(value: Value) -> Result<Self, ConversionError> {
         match value {
             Value::List(mut l) => l.drain(..).try_fold(Vec::new(), |mut m, v| {
                 T::from_value(v).map(|v| {
@@ -551,11 +550,11 @@ where
                     m
                 })
             }),
-            Value::String(_) => Err(Error::conversion_error("list", "string")),
-            Value::Table(_) => Err(Error::conversion_error("list", "table")),
+            Value::String(_) => Err(ConversionError::new("list", "string")),
+            Value::Table(_) => Err(ConversionError::new("list", "table")),
         }
     }
-    fn from_no_value() -> Result<Self, Error> {
+    fn from_no_value() -> Result<Self, ConversionError> {
         Ok(Vec::default())
     }
 }

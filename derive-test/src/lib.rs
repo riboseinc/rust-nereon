@@ -28,18 +28,18 @@ extern crate nereon;
 
 #[cfg(test)]
 mod tests {
-    use super::nereon::{parse_noc, Error, FromValue, Value};
+    use super::nereon::{parse_noc, ConversionError, FromValue, NocError, Value};
 
     fn conversion_error<T>(
         keys: &[&'static str],
         expected: &'static str,
         found: &'static str,
-    ) -> Result<T, Error> {
-        Err(Error::ConversionError {
+    ) -> Result<T, NocError> {
+        Err(NocError::Convert(ConversionError {
             keys: keys.to_vec(),
             expected,
             found,
-        })
+        }))
     }
 
     #[test]
@@ -366,9 +366,11 @@ mod tests {
             ("a d [42]", (vec!["a"], "one of [a, b, c]", "value")),
             ("a c 42", (vec!["a", "c"], "list", "string")),
             ("a c {d 42}", (vec!["a", "c"], "list", "table")),
-        ].iter().for_each(|(a, (k, e, f))| {
-            assert_eq!(parse_noc::<B>(a), conversion_error(k, e, f));
-        });
+        ]
+            .iter()
+            .for_each(|(a, (k, e, f))| {
+                assert_eq!(parse_noc::<B>(a), conversion_error(k, e, f));
+            });
     }
 
     #[test]

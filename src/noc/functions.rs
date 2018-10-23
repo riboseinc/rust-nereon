@@ -21,11 +21,11 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-use super::{Error, Value};
+use super::{ParseError, Value};
 use std::str::FromStr;
 use std::u32;
 
-pub fn apply(name: &str, args: &[Value]) -> Result<Value, Error> {
+pub fn apply(name: &str, args: &[Value]) -> Result<Value, ParseError> {
     match name {
         "add" => add(args),
         "subtract" => subtract(args),
@@ -40,7 +40,7 @@ pub fn apply(name: &str, args: &[Value]) -> Result<Value, Error> {
     }
 }
 
-pub fn add(args: &[Value]) -> Result<Value, Error> {
+pub fn add(args: &[Value]) -> Result<Value, ParseError> {
     convert::<i64>(args)
         .map(|(lhs, rhs)| (lhs + rhs).to_string())
         .or_else(|_| convert::<f64>(args).map(|(lhs, rhs)| (lhs + rhs).to_string()))
@@ -48,7 +48,7 @@ pub fn add(args: &[Value]) -> Result<Value, Error> {
         .map(Value::String)
 }
 
-pub fn subtract(args: &[Value]) -> Result<Value, Error> {
+pub fn subtract(args: &[Value]) -> Result<Value, ParseError> {
     convert::<i64>(args)
         .map(|(lhs, rhs)| (lhs - rhs).to_string())
         .or_else(|_| convert::<f64>(args).map(|(lhs, rhs)| (lhs - rhs).to_string()))
@@ -56,7 +56,7 @@ pub fn subtract(args: &[Value]) -> Result<Value, Error> {
         .map(Value::String)
 }
 
-pub fn multiply(args: &[Value]) -> Result<Value, Error> {
+pub fn multiply(args: &[Value]) -> Result<Value, ParseError> {
     convert::<i64>(args)
         .map(|(lhs, rhs)| (lhs * rhs).to_string())
         .or_else(|_| convert::<f64>(args).map(|(lhs, rhs)| (lhs * rhs).to_string()))
@@ -64,14 +64,14 @@ pub fn multiply(args: &[Value]) -> Result<Value, Error> {
         .map(Value::String)
 }
 
-pub fn divide(args: &[Value]) -> Result<Value, Error> {
+pub fn divide(args: &[Value]) -> Result<Value, ParseError> {
     convert::<f64>(args)
         .map(|(lhs, rhs)| (lhs / rhs).to_string())
         .map_err(|_| error("Division requires two numeric arguments"))
         .map(Value::String)
 }
 
-pub fn power(args: &[Value]) -> Result<Value, Error> {
+pub fn power(args: &[Value]) -> Result<Value, ParseError> {
     convert::<i64>(args)
         .and_then(|(lhs, rhs)| {
             if rhs > 0 && rhs <= i64::from(u32::MAX) {
@@ -84,21 +84,21 @@ pub fn power(args: &[Value]) -> Result<Value, Error> {
         .map(Value::String)
 }
 
-pub fn intdiv(args: &[Value]) -> Result<Value, Error> {
+pub fn intdiv(args: &[Value]) -> Result<Value, ParseError> {
     convert::<i64>(args)
         .map(|(lhs, rhs)| (lhs / rhs).to_string())
         .map_err(|_| error("Integer division requires two integer arguments"))
         .map(Value::String)
 }
 
-pub fn modulus(args: &[Value]) -> Result<Value, Error> {
+pub fn modulus(args: &[Value]) -> Result<Value, ParseError> {
     convert::<i64>(args)
         .map(|(lhs, rhs)| (lhs % rhs).to_string())
         .map_err(|_| error("Modulus requires two integer arguments"))
         .map(Value::String)
 }
 
-fn concat(args: &[Value]) -> Result<Value, Error> {
+fn concat(args: &[Value]) -> Result<Value, ParseError> {
     args.iter()
         .try_fold(String::new(), |mut s, a| {
             a.as_str().map(|a| {
@@ -109,7 +109,7 @@ fn concat(args: &[Value]) -> Result<Value, Error> {
         .ok_or_else(|| error("Concat only takes string arguments"))
 }
 
-fn join(args: &[Value]) -> Result<Value, Error> {
+fn join(args: &[Value]) -> Result<Value, ParseError> {
     args.iter()
         .try_fold(Vec::new(), |mut v, a| {
             a.as_str().map(|a| {
@@ -144,8 +144,8 @@ fn convert<T: FromStr>(args: &[Value]) -> Result<(T, T), ()> {
         })
 }
 
-fn error(reason: &'static str) -> Error {
-    Error::ParseError {
+fn error(reason: &'static str) -> ParseError {
+    ParseError {
         reason,
         positions: Vec::new(),
     }

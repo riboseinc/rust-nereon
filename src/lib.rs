@@ -72,7 +72,7 @@
 //! #[macro_use]
 //! extern crate nereon_derive;
 //! extern crate nereon;
-//! use nereon::{parse_noc, Error, FromValue, Value};
+//! use nereon::{parse_noc, NocError, ConversionError, FromValue, Value};
 //!
 //! # fn main() {
 //! #[derive(FromValue, PartialEq, Debug)]
@@ -163,7 +163,7 @@ mod nos;
 use nos::{Nos, UserOption};
 
 mod noc;
-pub use noc::{parse_noc, Error, FromValue, Value};
+pub use noc::{parse_noc, ConversionError, FromValue, NocError, ParseError, Value};
 
 /// Parse command-line options into a [`Value`](enum.Value.html).
 ///
@@ -300,8 +300,7 @@ where
         }
         config
     });
-    T::from_value(config)
-        .map_err(|e| format!("{}", e))
+    T::from_value(config).map_err(|e| format!("{}", e))
 }
 
 #[cfg(test)]

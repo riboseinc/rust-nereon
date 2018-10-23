@@ -46,7 +46,7 @@ pub fn derive_from_value(input: TokenStream) -> TokenStream {
     };
     let gen = quote! {
         impl FromValue for #name {
-            fn from_value(mut v: Value) -> Result<Self, Error> {
+            fn from_value(mut v: Value) -> Result<Self, ConversionError> {
                 #body
             }
         }
@@ -67,8 +67,8 @@ fn body_from_from_value_normal_struct(name: &syn::Ident, fields: &syn::Fields) -
     quote! {
         match v {
             Value::Table(mut v) => Ok(#name { #fields }),
-            Value::List(_) => Err(Error::conversion_error("table", "list")),
-            Value::String(_) => Err(Error::conversion_error("table", "string")),
+            Value::List(_) => Err(ConversionError::new("table", "list")),
+            Value::String(_) => Err(ConversionError::new("table", "string")),
         }
     }
 }
@@ -83,8 +83,8 @@ fn body_from_from_value_tuple_struct(name: &syn::Ident, fields: &syn::Fields) ->
                     #fields
                 ))
             }
-            Value::Table(_) => Err(Error::conversion_error("list", "table")),
-            Value::String(_) => Err(Error::conversion_error("list", "string")),
+            Value::Table(_) => Err(ConversionError::new("list", "table")),
+            Value::String(_) => Err(ConversionError::new("list", "string")),
         }
     }
 }
@@ -110,9 +110,9 @@ fn body_from_from_value_enum(name: &syn::Ident, data: &syn::DataEnum) -> TokenSt
                         Some(Value::Table(mut v)) => Ok(#name::#vname {
                             #fields
                         }),
-                        Some(Value::List(_)) => Err(Error::conversion_error("table", "list")),
-                        Some(Value::String(_)) => Err(Error::conversion_error("table", "string")),
-                        None => Err(Error::conversion_error("table", "nothing")),
+                        Some(Value::List(_)) => Err(ConversionError::new("table", "list")),
+                        Some(Value::String(_)) => Err(ConversionError::new("table", "string")),
+                        None => Err(ConversionError::new("table", "nothing")),
                     }
                 }
             }
@@ -126,16 +126,16 @@ fn body_from_from_value_enum(name: &syn::Ident, data: &syn::DataEnum) -> TokenSt
                                 #fields
                             ))
                         }
-                        Some(Value::Table(_)) => Err(Error::conversion_error("list", "table")),
-                        Some(Value::String(_)) => Err(Error::conversion_error("list", "string")),
-                        None => Err(Error::conversion_error("list", "nothing")),
+                        Some(Value::Table(_)) => Err(ConversionError::new("list", "table")),
+                        Some(Value::String(_)) => Err(ConversionError::new("list", "string")),
+                        None => Err(ConversionError::new("list", "nothing")),
                     }
                 }
             }
             syn::Fields::Unit => quote! {
                 v.map_or_else(
                     || Ok(#name::#vname),
-                    |_| Err(Error::conversion_error("nothing", "value"))
+                    |_| Err(ConversionError::new("nothing", "value"))
                 )
             },
         };
@@ -153,11 +153,11 @@ fn body_from_from_value_enum(name: &syn::Ident, data: &syn::DataEnum) -> TokenSt
             Value::Table(ref mut t) if t.len() == 1 => {
                 Ok(t.drain().next().map(|(k, v)| (k, Some(v))).unwrap())
             }
-            Value::Table(_) => Err(Error::conversion_error("string or single entry table", "multiple entry table")),
-            Value::List(_) => Err(Error::conversion_error("string or single entry table", "list")),
+            Value::Table(_) => Err(ConversionError::new("string or single entry table", "multiple entry table")),
+            Value::List(_) => Err(ConversionError::new("string or single entry table", "list")),
         }.and_then(|(n, v)| match n.as_ref() {
             #branches
-            _ => Err(Error::conversion_error(#names, "value")),
+            _ => Err(ConversionError::new(#names, "value")),
         })
     }
 }

@@ -35,7 +35,7 @@ mod error;
 mod functions;
 mod value;
 
-pub use self::error::Error;
+pub use self::error::{ConversionError, NocError, ParseError};
 pub use self::value::{FromValue, Value};
 
 #[derive(Debug)]
@@ -81,17 +81,19 @@ lazy_static! {
 ///
 /// assert_eq!(parse_noc(noc), Ok(expected));
 /// ```
-pub fn parse_noc<T>(input: &str) -> Result<T, Error>
+pub fn parse_noc<T>(input: &str) -> Result<T, NocError>
 where
     T: FromValue,
 {
     NocParser::parse(Rule::root, input)
-        .map_err(|e| Error::ParseError {
-            reason: "Syntax error",
-            positions: vec![match e.line_col {
-                LineColLocation::Pos(p) => p,
-                LineColLocation::Span(p, _) => p,
-            }],
+        .map_err(|e| {
+            ParseError::new(
+                "Syntax error",
+                match e.line_col {
+                    LineColLocation::Pos(p) => p,
+                    LineColLocation::Span(p, _) => p,
+                },
+            )
         }).and_then(|mut pairs| {
             mk_value(
                 pairs.next().unwrap(),
@@ -100,10 +102,11 @@ where
                     args: Vec::new(),
                 },
             )
-        }).and_then(T::from_value)
+        }).map_err(NocError::Parse)
+        .and_then(|v| T::from_value(v).map_err(NocError::Convert))
 }
 
-fn mk_value<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, Error> {
+fn mk_value<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, ParseError> {
     match pair.as_rule() {
         Rule::table => mk_table(pair, state),
         Rule::list => mk_list(pair, state).map(Value::List),
@@ -115,7 +118,7 @@ fn mk_value<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, Er
     }
 }
 
-fn mk_table<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, Error> {
+fn mk_table<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, ParseError> {
     pair.into_inner()
         .try_fold(Value::Table(HashMap::new()), |dict, pair| {
             match pair.as_rule() {
@@ -126,11 +129,13 @@ fn mk_table<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, Er
                         expressions
                             .into_iter()
                             .try_fold(Vec::new(), |mut keys, e| {
+                                let pos = e.as_span().start_pos().line_col();
                                 mk_value(e, state).and_then(|key| {
-                                    String::from_value(key).map(|key| {
-                                        keys.push(key);
-                                        keys
-                                    })
+                                    String::from_value(key)
+                                        .map(|key| {
+                                            keys.push(key);
+                                            keys
+                                        }).map_err(|_| ParseError::new("Expected string", pos))
                                 })
                             }).map(|keys| dict.insert(keys.iter().map(|s| s.as_ref()), value))
                     })
@@ -144,7 +149,7 @@ fn mk_table<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, Er
         })
 }
 
-fn mk_list<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Vec<Value>, Error> {
+fn mk_list<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Vec<Value>, ParseError> {
     pair.into_inner()
         .try_fold(Vec::new(), |mut list, pair| match pair.as_rule() {
             Rule::expression => mk_value(pair, state).map(|value| {
@@ -159,7 +164,7 @@ fn mk_list<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Vec<Value>
         })
 }
 
-fn evaluate<'a>(expression: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, Error> {
+fn evaluate<'a>(expression: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, ParseError> {
     CLIMBER.climb(
         expression.into_inner(),
         |value| mk_value(value.into_inner().next().unwrap(), state),
@@ -179,7 +184,7 @@ fn evaluate<'a>(expression: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Val
     )
 }
 
-fn mk_bare(bare: Pair<Rule>) -> Result<Value, Error> {
+fn mk_bare(bare: Pair<Rule>) -> Result<Value, ParseError> {
     bare.into_inner()
         .try_fold(String::new(), |mut s, pair| match pair.as_rule() {
             Rule::bare_chars => {
@@ -190,10 +195,10 @@ fn mk_bare(bare: Pair<Rule>) -> Result<Value, Error> {
                 let span = pair.into_span();
                 unescape(span.as_str()).map_or_else(
                     || {
-                        Err(Error::ParseError {
-                            reason: "Bad unicode character",
-                            positions: vec![span.start_pos().line_col()],
-                        })
+                        Err(ParseError::new(
+                            "Bad unicode character",
+                            span.start_pos().line_col(),
+                        ))
                     },
                     |c| {
                         s.push(c);
@@ -210,7 +215,7 @@ fn mk_bare(bare: Pair<Rule>) -> Result<Value, Error> {
         }).map(Value::String)
 }
 
-fn mk_quoted(quoted: Pair<Rule>) -> Result<Value, Error> {
+fn mk_quoted(quoted: Pair<Rule>) -> Result<Value, ParseError> {
     quoted
         .into_inner()
         .try_fold(String::new(), |mut s, pair| match pair.as_rule() {
@@ -222,10 +227,10 @@ fn mk_quoted(quoted: Pair<Rule>) -> Result<Value, Error> {
                 let span = pair.into_span();
                 unescape(span.as_str()).map_or_else(
                     || {
-                        Err(Error::ParseError {
-                            reason: "Bad unicode character",
-                            positions: vec![span.start_pos().line_col()],
-                        })
+                        Err(ParseError::new(
+                            "Bad unicode character",
+                            span.start_pos().line_col(),
+                        ))
                     },
                     |c| {
                         s.push(c);
@@ -254,65 +259,53 @@ fn unescape(s: &str) -> Option<char> {
 fn mk_template<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) {
     let mut iter = pair.into_inner();
     let name = mk_value(iter.next().unwrap(), state)
-        .and_then(String::from_value)
+        .ok()
+        .and_then(|v| String::from_value(v).ok())
         .unwrap();
     state.templates.push((name, iter.next().unwrap()));
 }
 
-fn apply_function<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, Error> {
+fn apply_function<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, ParseError> {
     let pos = pair.as_span().start_pos().line_col();
     let mut iter = pair.into_inner();
-    let name = iter.next().unwrap();
-    if name.as_str() == "$" {
-        let name = mk_value(iter.next().unwrap(), state).and_then(String::from_value)?;
+    let name = iter.next().unwrap().as_str();
+    if name == "$" {
+        let name = iter.next().unwrap().as_str();
         apply_template(&name, &[], state).map_err(|e| e.push_position(pos))
     } else {
-        let name = mk_value(name, state).and_then(String::from_value)?;
-        mk_list(iter.next().unwrap(), state).and_then(|args| match name.as_ref() {
+        mk_list(iter.next().unwrap(), state).and_then(|args| match name {
             "apply" => match args.len() {
-                0 => Err(Error::parse_error("Missing template name", pos)),
+                0 => Err(ParseError::new("Missing template name", pos)),
                 _ => args[0]
                     .as_str()
-                    .ok_or_else(|| Error::ParseError {
-                        reason: "Template name isn't a string",
-                        positions: vec![pos],
-                    }).and_then(|name| apply_template(name, &args[1..], state))
+                    .ok_or_else(|| ParseError::new("Template name isn't a string", pos))
+                    .and_then(|name| apply_template(name, &args[1..], state))
                     .map_err(|e| e.push_position(pos)),
             },
             "arg" => match args.len() {
                 1 => args[0]
                     .as_str()
                     .and_then(|n| n.parse::<usize>().ok())
-                    .ok_or(Error::ParseError {
-                        reason: "Argument should be an integer",
-                        positions: vec![pos],
-                    }).and_then(|n| {
+                    .ok_or_else(|| ParseError::new("Argument should be an integer", pos))
+                    .and_then(|n| {
                         state.args.get(n).map_or_else(
-                            || {
-                                Err(Error::ParseError {
-                                    reason: "No such argument",
-                                    positions: vec![pos],
-                                })
-                            },
+                            || Err(ParseError::new("No such argument", pos)),
                             |v| Ok(v.clone()),
                         )
                     }),
-                _ => Err(Error::ParseError {
-                    reason: "Too many arguments",
-                    positions: vec![pos],
-                }),
+                _ => Err(ParseError::new("Too many arguments", pos)),
             },
             _ => functions::apply(&name, &args[0..]),
         })
     }
 }
 
-fn apply_template(name: &str, args: &[Value], state: &mut State) -> Result<Value, Error> {
+fn apply_template(name: &str, args: &[Value], state: &mut State) -> Result<Value, ParseError> {
     state
         .templates
         .iter()
         .rposition(|(template_name, _)| template_name == name)
-        .ok_or_else(|| Error::ParseError {
+        .ok_or_else(|| ParseError {
             reason: "No such template",
             positions: vec![],
         }).and_then(|idx| {
@@ -326,12 +319,12 @@ fn apply_template(name: &str, args: &[Value], state: &mut State) -> Result<Value
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_noc, Error, Value};
+    use super::{parse_noc, NocError, ParseError, Value};
     use std::collections::HashMap;
     use std::iter::FromIterator;
 
-    fn parse_error<T>(msg: &'static str, line: usize, clm: usize) -> Result<T, Error> {
-        Err(Error::parse_error(msg, (line, clm)))
+    fn parse_error<T>(msg: &'static str, line: usize, clm: usize) -> Result<T, NocError> {
+        Err(NocError::Parse(ParseError::new(msg, (line, clm))))
     }
 
     #[test]
@@ -644,10 +637,7 @@ mod tests {
             ("a join(., a)", "a a"),
         ].iter()
         .for_each(|(a, b)| {
-            assert_eq!(
-                parse_noc::<Value>(a).unwrap(),
-                parse_noc::<Value>(b).unwrap()
-            );
+            assert_eq!(parse_noc::<Value>(a), parse_noc::<Value>(b));
         });
     }
 }

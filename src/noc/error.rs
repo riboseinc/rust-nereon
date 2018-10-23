@@ -24,101 +24,92 @@
 use std::fmt;
 
 #[derive(Debug, PartialEq)]
-pub enum Error {
-    ParseError {
-        positions: Vec<(usize, usize)>,
-        reason: &'static str,
-    },
-    ConversionError {
-        keys: Vec<&'static str>,
-        expected: &'static str,
-        found: &'static str,
-    },
+pub enum NocError {
+    Parse(ParseError),
+    Convert(ConversionError),
 }
 
-impl fmt::Display for Error {
+#[derive(Debug, PartialEq)]
+pub struct ParseError {
+    pub positions: Vec<(usize, usize)>,
+    pub reason: &'static str,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct ConversionError {
+    pub keys: Vec<&'static str>,
+    pub expected: &'static str,
+    pub found: &'static str,
+}
+
+impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Error::ParseError { reason, positions } => {
-                write!(f, "{} at ", reason);
-                let mut it = positions.iter().peekable();
-                while it.peek().is_some() {
-                    let (l, c) = it.next().unwrap();
-                    write!(f, "(line: {}, char {})", l, c);
-                    if it.peek().is_some() {
-                        write!(f, " while parsing ");
-                    }
-                }
-            }
-            Error::ConversionError {
-                keys,
-                expected,
-                found,
-            } => {
-                write!(
-                    f,
-                    "Expected {} but found {} while parsing the value for ",
-                    expected, found
-                );
-                let mut it = keys.iter().peekable();
-                while it.peek().is_some() {
-                    let k = it.next().unwrap();
-                    if it.peek().is_some() {
-                        write!(f, "\"{}\", ", k);
-                    } else {
-                        write!(f, "\"{}\"", k);
-                    }
-                }
+        write!(f, "{} at ", self. reason);
+        let mut it = self.positions.iter().peekable();
+        while it.peek().is_some() {
+            let (l, c) = it.next().unwrap();
+            write!(f, "(line: {}, char {})", l, c);
+            if it.peek().is_some() {
+                write!(f, " while parsing ");
             }
         }
         Ok(())
     }
 }
 
-impl Error {
-    pub fn parse_error(msg: &'static str, line_col: (usize, usize)) -> Self {
-        Error::ParseError {
+impl fmt::Display for ConversionError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "Expected {} but found {} while parsing the value for ",
+            self.expected, self.found
+        );
+        let mut it = self.keys.iter().peekable();
+        while it.peek().is_some() {
+            let k = it.next().unwrap();
+            if it.peek().is_some() {
+                write!(f, "\"{}\", ", k);
+            } else {
+                write!(f, "\"{}\"", k);
+            }
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Display for NocError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            NocError::Parse(e) => write!(f, "{}", e),
+            NocError::Convert(e) => write!(f, "{}", e),
+        }
+    }
+}
+
+impl ParseError {
+    pub fn new(msg: &'static str, line_col: (usize, usize)) -> Self {
+        Self {
             reason: msg,
             positions: vec![line_col],
         }
     }
+    pub fn push_position(mut self, pos: (usize, usize)) -> Self {
+        self.positions.push(pos);
+        self
+    }
+}
 
-    pub fn conversion_error(expected: &'static str, found: &'static str) -> Self {
-        Error::ConversionError {
+impl ConversionError {
+    pub fn new(expected: &'static str, found: &'static str) -> Self {
+        Self {
             keys: Vec::new(),
             expected,
             found,
         }
     }
 
-    pub fn unshift_key(self, key: &'static str) -> Self {
-        match self {
-            Error::ConversionError {
-                mut keys,
-                expected,
-                found,
-            } => {
-                keys.insert(0, key);
-                Error::ConversionError {
-                    keys,
-                    expected,
-                    found,
-                }
-            }
-            Error::ParseError { .. } => unreachable!(),
-        }
-    }
-
-    pub fn push_position(self, pos: (usize, usize)) -> Self {
-        match self {
-            Error::ParseError {
-                mut positions,
-                reason,
-            } => {
-                positions.push(pos);
-                Error::ParseError { positions, reason }
-            }
-            Error::ConversionError { .. } => unreachable!(),
-        }
+    pub fn unshift_key(mut self, key: &'static str) -> Self {
+        self.keys.insert(0, key);
+        self
     }
 }

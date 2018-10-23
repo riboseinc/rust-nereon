@@ -98,7 +98,7 @@ fn handle_request(mut req: Request) -> io::Result<()> {
                 if req.as_reader().read_to_string(&mut body).is_ok() {
                     req.respond(Response::from_string(match parse_noc::<Value>(&body) {
                         Ok(s) => s.as_noc_string_pretty(),
-                        Err(e) => format!("{:?}", e),
+                        Err(e) => format!("{}", e),
                     }))
                 } else {
                     req.respond(

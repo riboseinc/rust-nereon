@@ -76,10 +76,10 @@ impl fmt::Display for Error {
 }
 
 impl Error {
-    pub fn parse_error(msg: &'static str, line_col: Vec<(usize, usize)>) -> Self {
+    pub fn parse_error(msg: &'static str, line_col: (usize, usize)) -> Self {
         Error::ParseError {
             reason: msg,
-            positions: line_col,
+            positions: vec![line_col],
         }
     }
 
@@ -106,6 +106,19 @@ impl Error {
                 }
             }
             Error::ParseError { .. } => unreachable!(),
+        }
+    }
+
+    pub fn push_position(self, pos: (usize, usize)) -> Self {
+        match self {
+            Error::ParseError {
+                mut positions,
+                reason,
+            } => {
+                positions.push(pos);
+                Error::ParseError { positions, reason }
+            }
+            Error::ConversionError { .. } => unreachable!(),
         }
     }
 }

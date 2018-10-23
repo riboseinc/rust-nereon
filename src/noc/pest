@@ -25,7 +25,7 @@ esc = @{
 }
 
 quoted_chars = @{ (!quote ~ !backslash ~ ANY)+ }
-quoted_string = ${ (esc | quoted_chars)* }
+quoted_string = ${ quote ~ (esc | quoted_chars)* ~ quote }
 
 special = { "{" | "}" | "(" | ")" | "[" | "]" | " " | "," | "$" | "#" }
 special_esc = @{ "\\" ~ special }
@@ -34,16 +34,16 @@ bare_chars = @{ (!quote ~ !backslash ~ !special ~ !COMMENT ~ !NEWLINE ~ ANY)+ }
 bare_string = ${ (special_esc | esc | bare_chars)+ }
 
 dollar = { "$" }
-function = ${ (bare_string ~ "(" ~ list ~ ")" | dollar ~ bare_string) }
+function = ${ (bare_string ~ "(" ~ WHITESPACE* ~ list ~ ")" | dollar ~ bare_string) }
 value = !{
     function
   | bare_string
-  | quote ~ quoted_string ~ quote
+  | quoted_string
   | "(" ~ expression ~ ")"
   | "{" ~ table ~ "}"
   | "[" ~ list ~ "]"
 }
-template = { "let(" ~ sep* ~ (bare_string | quoted_string) ~ sep* ~ expression ~ sep* ~ ")" }
+template = { "let(" ~ sep* ~ (bare_string | quoted_string) ~ sep+ ~ expression ~ sep* ~ ")" }
 expression = ${ value ~ (infix ~ value)* }
 exp_list = _{ ((template | expression) ~ sep ~ exp_list | sep ~ exp_list | (template | expression))? }
 key_value = { expression{2,} }

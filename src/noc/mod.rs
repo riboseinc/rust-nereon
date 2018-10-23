@@ -265,16 +265,20 @@ fn apply_function<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Val
     let name = iter.next().unwrap();
     if name.as_str() == "$" {
         let name = mk_value(iter.next().unwrap(), state).and_then(String::from_value)?;
-        apply_template(&name, &[], state)
+        apply_template(&name, &[], state).map_err(|e| e.push_position(pos))
     } else {
         let name = mk_value(name, state).and_then(String::from_value)?;
         mk_list(iter.next().unwrap(), state).and_then(|args| match name.as_ref() {
-            "apply" => args[0]
-                .as_str()
-                .ok_or_else(|| Error::ParseError {
-                    reason: "Template name isn't a string",
-                    positions: vec![pos],
-                }).and_then(|name| apply_template(name, &args[1..], state)),
+            "apply" => match args.len() {
+                0 => Err(Error::parse_error("Missing template name", pos)),
+                _ => args[0]
+                    .as_str()
+                    .ok_or_else(|| Error::ParseError {
+                        reason: "Template name isn't a string",
+                        positions: vec![pos],
+                    }).and_then(|name| apply_template(name, &args[1..], state))
+                    .map_err(|e| e.push_position(pos)),
+            },
             "arg" => match args.len() {
                 1 => args[0]
                     .as_str()
@@ -310,7 +314,7 @@ fn apply_template(name: &str, args: &[Value], state: &mut State) -> Result<Value
         .rposition(|(template_name, _)| template_name == name)
         .ok_or_else(|| Error::ParseError {
             reason: "No such template",
-            positions: vec![], //TODO
+            positions: vec![],
         }).and_then(|idx| {
             let mut new_state = State {
                 templates: state.templates[0..idx].to_vec(),
@@ -327,7 +331,7 @@ mod tests {
     use std::iter::FromIterator;
 
     fn parse_error<T>(msg: &'static str, line: usize, clm: usize) -> Result<T, Error> {
-        Err(Error::parse_error(msg, vec![(line, clm)]))
+        Err(Error::parse_error(msg, (line, clm)))
     }
 
     #[test]
@@ -465,12 +469,7 @@ mod tests {
             (r#"a "\u020""#, 4),
             (r#"a "\U00000g0""#, 4),
         ].iter()
-        .for_each(|&(a, c)| {
-            assert_eq!(
-                parse_noc::<Value>(a),
-                parse_error("Syntax error", 1, c)
-            )
-        });
+        .for_each(|&(a, c)| assert_eq!(parse_noc::<Value>(a), parse_error("Syntax error", 1, c)));
     }
 
     #[test]

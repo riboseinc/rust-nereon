@@ -28,8 +28,19 @@ extern crate nereon;
 
 #[cfg(test)]
 mod tests {
-    extern crate nereon;
-    use self::nereon::{parse_noc, FromValue, Value};
+    use super::nereon::{parse_noc, ConversionError, FromValue, NocError, Value};
+
+    fn conversion_error<T>(
+        keys: &[&'static str],
+        expected: &'static str,
+        found: &'static str,
+    ) -> Result<T, NocError> {
+        Err(NocError::Convert(ConversionError {
+            keys: keys.to_vec(),
+            expected,
+            found,
+        }))
+    }
 
     #[test]
     fn test_string_struct() {
@@ -42,6 +53,10 @@ mod tests {
             Ok(A {
                 a: "apple".to_owned(),
             })
+        );
+        assert_eq!(
+            parse_noc::<A>("b apple"),
+            conversion_error(&["a"], "value", "nothing")
         );
     }
 
@@ -119,7 +134,7 @@ mod tests {
             ),
         ];
         for (a, b) in tests {
-            assert_eq!(&A::from_value(parse_noc::<Value>(a).unwrap()), b);
+            assert_eq!(&parse_noc::<A>(a), b);
         }
         let tests = &[
             "a 9223372036854775808, b 0, c 0, d 0",
@@ -136,7 +151,7 @@ mod tests {
             "a 0, b 0, c 0, d 0.0",
         ];
         for a in tests {
-            assert!(&A::from_value(parse_noc::<Value>(a).unwrap()).is_err());
+            assert!(parse_noc::<A>(a).is_err());
         }
     }
 
@@ -161,11 +176,11 @@ mod tests {
             ),
         ];
         for (a, b) in tests {
-            assert_eq!(&A::from_value(parse_noc::<Value>(a).unwrap()), b);
+            assert_eq!(&parse_noc::<A>(a), b);
         }
         let tests = &["a not, b 0", "a 0, b not"];
         for a in tests {
-            assert!(&A::from_value(parse_noc::<Value>(a).unwrap()).is_err());
+            assert!(&parse_noc::<A>(a).is_err());
         }
     }
 
@@ -177,6 +192,10 @@ mod tests {
         }
         assert_eq!(parse_noc::<A>("b apple"), Ok(A { a: None }));
         assert_eq!(parse_noc::<A>("a 200"), Ok(A { a: Some(200) }));
+        assert_eq!(
+            parse_noc::<A>("a apple"),
+            conversion_error(&["a"], "u8", "string")
+        );
     }
 
     #[test]
@@ -199,6 +218,14 @@ mod tests {
                 b: "banana".to_owned(),
             })
         );
+        assert_eq!(
+            parse_noc::<B>("a { a apple }"),
+            conversion_error(&["b"], "value", "nothing")
+        );
+        assert_eq!(
+            parse_noc::<B>("a { c apple }, b banana"),
+            conversion_error(&["a", "a"], "value", "nothing")
+        );
     }
 
     #[test]
@@ -210,6 +237,10 @@ mod tests {
             a: A,
         }
         assert_eq!(parse_noc::<B>("a [1,2,3]"), Ok(B { a: A(1, 2, 3) }));
+        assert_eq!(
+            parse_noc::<B>("a [1,forty-two,3]"),
+            conversion_error(&["a", "field#1"], "i8", "string")
+        );
     }
 
     #[test]
@@ -225,6 +256,10 @@ mod tests {
         }
         assert_eq!(parse_noc::<B>("a a"), Ok(B { a: A::A }));
         assert_eq!(parse_noc::<B>("a b"), Ok(B { a: A::B }));
+        assert_eq!(
+            parse_noc::<B>("a c"),
+            conversion_error(&["a"], "one of [a, b]", "value")
+        );
     }
 
     #[test]
@@ -240,6 +275,18 @@ mod tests {
         }
         assert_eq!(parse_noc::<B>("a a {a 42}"), Ok(B { a: A::A { a: 42 } }));
         assert_eq!(parse_noc::<B>("a b {b 42}"), Ok(B { a: A::B { b: 42 } }));
+        assert_eq!(
+            parse_noc::<B>("a b {b bakers-dozen}"),
+            conversion_error(&["a", "b", "b"], "u32", "string")
+        );
+        assert_eq!(
+            parse_noc::<B>("a b {c 42}"),
+            conversion_error(&["a", "b", "b"], "value", "nothing")
+        );
+        assert_eq!(
+            parse_noc::<B>("a c {b 42}"),
+            conversion_error(&["a"], "one of [a, b]", "value")
+        );
     }
 
     #[test]
@@ -255,6 +302,18 @@ mod tests {
         }
         assert_eq!(parse_noc::<B>("a a [1,2,3]"), Ok(B { a: A::A(1, 2, 3) }));
         assert_eq!(parse_noc::<B>("a b [41 + 1]"), Ok(B { a: A::B(42) }));
+        assert_eq!(
+            parse_noc::<B>("a c {b 42}"),
+            conversion_error(&["a"], "one of [a, b]", "value")
+        );
+        assert_eq!(
+            parse_noc::<B>("a b [orangutan]"),
+            conversion_error(&["a", "b", "field#0"], "u32", "string")
+        );
+        assert_eq!(
+            parse_noc::<B>("a a [1,2,orangutan]"),
+            conversion_error(&["a", "a", "field#2"], "i8", "string")
+        );
     }
 
     #[test]
@@ -272,6 +331,14 @@ mod tests {
         assert_eq!(parse_noc::<B>("a a"), Ok(B { a: A::A }));
         assert_eq!(parse_noc::<B>("a b {b 42}"), Ok(B { a: A::B { b: 42 } }));
         assert_eq!(parse_noc::<B>("a c [41 + 1]"), Ok(B { a: A::C(42) }));
+        assert_eq!(
+            parse_noc::<B>("a d"),
+            conversion_error(&["a"], "one of [a, b, c]", "value")
+        );
+        assert_eq!(
+            parse_noc::<B>("a a 12"),
+            conversion_error(&["a", "a"], "nothing", "value")
+        );
     }
 
     #[test]
@@ -286,18 +353,24 @@ mod tests {
         struct B {
             a: A,
         }
-        assert!(parse_noc::<B>("a a [42]").is_err());
-        assert!(parse_noc::<B>("a a []").is_err());
-        assert!(parse_noc::<B>("a b {b:42}").is_err());
-        assert!(parse_noc::<B>("a b [42]").is_err());
-        assert!(parse_noc::<B>("a b").is_err());
-        assert!(parse_noc::<B>("a b {c:42}").is_err());
-        assert!(parse_noc::<B>("a b {}").is_err());
-        assert!(parse_noc::<B>("a d").is_err());
-        assert!(parse_noc::<B>("a d {d:42}").is_err());
-        assert!(parse_noc::<B>("a d").is_err());
-        assert!(parse_noc::<B>("a d {d:42}").is_err());
-        assert!(parse_noc::<B>("a d [42]").is_err());
+        [
+            ("a a [42]", (vec!["a", "a"], "nothing", "value")),
+            ("a a []", (vec!["a", "a"], "nothing", "value")),
+            ("a b {b draft}", (vec!["a", "b", "b"], "u32", "string")),
+            ("a b [42]", (vec!["a", "b"], "table", "list")),
+            ("a b", (vec!["a", "b"], "table", "nothing")),
+            ("a b {c 42}", (vec!["a", "b", "b"], "value", "nothing")),
+            ("a b {}", (vec!["a", "b", "b"], "value", "nothing")),
+            ("a d", (vec!["a"], "one of [a, b, c]", "value")),
+            ("a d {d 42}", (vec!["a"], "one of [a, b, c]", "value")),
+            ("a d [42]", (vec!["a"], "one of [a, b, c]", "value")),
+            ("a c 42", (vec!["a", "c"], "list", "string")),
+            ("a c {d 42}", (vec!["a", "c"], "list", "table")),
+        ]
+            .iter()
+            .for_each(|(a, (k, e, f))| {
+                assert_eq!(parse_noc::<B>(a), conversion_error(k, e, f));
+            });
     }
 
     #[test]
@@ -306,7 +379,12 @@ mod tests {
         struct A {
             vec: Vec<String>,
         }
-        assert_eq!(parse_noc::<A>(""), Ok(A {vec: Vec::default()}));
+        assert_eq!(
+            parse_noc::<A>(""),
+            Ok(A {
+                vec: Vec::default()
+            })
+        );
     }
 
     #[test]
@@ -316,6 +394,11 @@ mod tests {
         struct A {
             map: HashMap<String, String>,
         }
-        assert_eq!(parse_noc::<A>(""), Ok(A {map: HashMap::default()}));
+        assert_eq!(
+            parse_noc::<A>(""),
+            Ok(A {
+                map: HashMap::default()
+            })
+        );
     }
 }

@@ -21,6 +21,7 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+use noc::ConversionError;
 use std::collections::{BTreeMap, HashMap};
 use std::ffi::{OsStr, OsString};
 use std::hash::Hash;
@@ -175,7 +176,7 @@ impl Value {
     /// let v = Value::from("42");
     /// assert_eq!(Value::convert(Some(v)), Ok(42));
     /// ```
-    pub fn convert<T: FromValue>(v: Option<Value>) -> Result<T, String> {
+    pub fn convert<T: FromValue>(v: Option<Value>) -> Result<T, ConversionError> {
         v.map_or_else(T::from_no_value, T::from_value)
     }
 
@@ -452,31 +453,25 @@ impl Value {
 /// Implemnataions can be automatically derived by using the
 /// [`nereon_derive`](../nereon_derive/index.html) crate.
 pub trait FromValue<OK = Self> {
-    fn from_value(value: Value) -> Result<OK, String>;
+    fn from_value(value: Value) -> Result<OK, ConversionError>;
     // this is a kludge so missing Values can be converted
     // into None
-    fn from_no_value() -> Result<OK, String> {
-        Err("No such key".to_owned())
+    fn from_no_value() -> Result<OK, ConversionError> {
+        Err(ConversionError::new("value", "nothing"))
     }
 }
 
 macro_rules! from_value_for {
     ($type:ident) => {
         impl FromValue for $type {
-            fn from_value(value: Value) -> Result<Self, String> {
-                value.as_str().map_or_else(
-                    || Err("Value is not a String".to_owned()),
-                    |s| {
-                        s.parse().map_err(|e| {
-                            format!(
-                                "Failed to parse: {} (\"{}\" -> {})",
-                                e,
-                                s,
-                                stringify!($type)
-                            )
-                        })
-                    },
-                )
+            fn from_value(value: Value) -> Result<Self, ConversionError> {
+                match value {
+                    Value::String(s) => s
+                        .parse()
+                        .map_err(|_| ConversionError::new(stringify!($type), "string")),
+                    Value::List(_) => Err(ConversionError::new("string", "list")),
+                    Value::Table(_) => Err(ConversionError::new("string", "table")),
+                }
             }
         }
     };
@@ -494,16 +489,17 @@ from_value_for!(f32);
 from_value_for!(f64);
 
 impl FromValue for Value {
-    fn from_value(value: Value) -> Result<Self, String> {
+    fn from_value(value: Value) -> Result<Self, ConversionError> {
         Ok(value)
     }
 }
 
 impl FromValue for String {
-    fn from_value(value: Value) -> Result<Self, String> {
+    fn from_value(value: Value) -> Result<Self, ConversionError> {
         match value {
             Value::String(s) => Ok(s),
-            _ => Err("Value is not a string".to_owned()),
+            Value::Table(_) => Err(ConversionError::new("string", "table")),
+            Value::List(_) => Err(ConversionError::new("string", "list")),
         }
     }
 }
@@ -512,10 +508,10 @@ impl<T> FromValue for Option<T>
 where
     T: FromValue,
 {
-    fn from_value(value: Value) -> Result<Self, String> {
+    fn from_value(value: Value) -> Result<Self, ConversionError> {
         Ok(Some(T::from_value(value)?))
     }
-    fn from_no_value() -> Result<Self, String> {
+    fn from_no_value() -> Result<Self, ConversionError> {
         Ok(None)
     }
 }
@@ -524,20 +520,20 @@ impl<T, S: ::std::hash::BuildHasher + Default> FromValue for HashMap<String, T, 
 where
     T: FromValue,
 {
-    fn from_value(mut value: Value) -> Result<Self, String> {
-        value
-            .as_table_mut()
-            .ok_or_else(|| "Couldn't convert".to_owned())
-            .and_then(|d| {
-                d.drain().try_fold(HashMap::default(), |mut m, (k, v)| {
-                    T::from_value(v).map(|v| {
-                        m.insert(k, v);
-                        m
-                    })
+    fn from_value(value: Value) -> Result<Self, ConversionError> {
+        match value {
+            Value::Table(mut d) => d.drain().try_fold(HashMap::default(), |mut m, (k, v)| {
+                T::from_value(v).map(|v| {
+                    m.insert(k, v);
+                    m
                 })
-            })
+            }),
+            Value::String(_) => Err(ConversionError::new("table", "string")),
+            Value::List(_) => Err(ConversionError::new("table", "list")),
+        }
     }
-    fn from_no_value() -> Result<Self, String> {
+
+    fn from_no_value() -> Result<Self, ConversionError> {
         Ok(HashMap::default())
     }
 }
@@ -546,20 +542,19 @@ impl<T> FromValue for Vec<T>
 where
     T: FromValue,
 {
-    fn from_value(mut value: Value) -> Result<Self, String> {
-        value
-            .as_list_mut()
-            .ok_or_else(|| "Couldn't convert".to_owned())
-            .and_then(|d| {
-                d.drain(..).try_fold(Vec::new(), |mut m, v| {
-                    T::from_value(v).map(|v| {
-                        m.push(v);
-                        m
-                    })
+    fn from_value(value: Value) -> Result<Self, ConversionError> {
+        match value {
+            Value::List(mut l) => l.drain(..).try_fold(Vec::new(), |mut m, v| {
+                T::from_value(v).map(|v| {
+                    m.push(v);
+                    m
                 })
-            })
+            }),
+            Value::String(_) => Err(ConversionError::new("list", "string")),
+            Value::Table(_) => Err(ConversionError::new("list", "table")),
+        }
     }
-    fn from_no_value() -> Result<Self, String> {
+    fn from_no_value() -> Result<Self, ConversionError> {
         Ok(Vec::default())
     }
 }

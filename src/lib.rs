@@ -72,7 +72,7 @@
 //! #[macro_use]
 //! extern crate nereon_derive;
 //! extern crate nereon;
-//! use nereon::{parse_noc, FromValue, Value};
+//! use nereon::{parse_noc, NocError, ConversionError, FromValue, Value};
 //!
 //! # fn main() {
 //! #[derive(FromValue, PartialEq, Debug)]
@@ -163,7 +163,7 @@ mod nos;
 use nos::{Nos, UserOption};
 
 mod noc;
-pub use noc::{parse_noc, FromValue, Value};
+pub use noc::{parse_noc, ConversionError, FromValue, NocError, ParseError, Value};
 
 /// Parse command-line options into a [`Value`](enum.Value.html).
 ///
@@ -203,7 +203,7 @@ pub fn configure<T, U: IntoIterator<Item = I>, I: Into<OsString> + Clone>(
 where
     T: FromValue,
 {
-    let nos = parse_noc::<Nos>(nos)?;
+    let nos = parse_noc::<Nos>(nos).expect("Invalid NOS");
 
     let options = nos.option.as_ref().expect("Invalid NOS");
 
@@ -258,8 +258,8 @@ where
         let mut buffer = String::new();
         config = File::open(&n)
             .and_then(|ref mut f| f.read_to_string(&mut buffer))
-            .map_err(|e| format!("{:?}", e))
-            .and_then(|_| parse_noc::<Value>(&buffer))
+            .map_err(|e| format!("{}", e))
+            .and_then(|_| parse_noc::<Value>(&buffer).map_err(|e| format!("{:?}", e)))
             .and_then(|v| {
                 Ok({
                     let keys = key_to_strs(&options.get("config").unwrap());
@@ -300,7 +300,7 @@ where
         }
         config
     });
-    T::from_value(config)
+    T::from_value(config).map_err(|e| format!("{}", e))
 }
 
 #[cfg(test)]

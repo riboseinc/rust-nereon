@@ -165,6 +165,7 @@ fn mk_list<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Vec<Value>
 }
 
 fn evaluate<'a>(expression: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Value, ParseError> {
+    let pos = expression.as_span().start_pos().line_col();
     CLIMBER.climb(
         expression.into_inner(),
         |value| mk_value(value.into_inner().next().unwrap(), state),
@@ -181,7 +182,7 @@ fn evaluate<'a>(expression: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Val
                     _ => unimplemented!(),
                 })
         },
-    )
+    ).map_err(|e| e.push_position(pos))
 }
 
 fn mk_bare(bare: Pair<Rule>) -> Result<Value, ParseError> {
@@ -293,9 +294,9 @@ fn apply_function<'a>(pair: Pair<'a, Rule>, state: &mut State<'a>) -> Result<Val
                             |v| Ok(v.clone()),
                         )
                     }),
-                _ => Err(ParseError::new("Too many arguments", pos)),
+                _ => Err(ParseError::new("One integer argument required", pos)),
             },
-            _ => functions::apply(&name, &args[0..]),
+            _ => functions::apply(&name, &args[0..]).map_err(|e| e.push_position(pos)),
         })
     }
 }

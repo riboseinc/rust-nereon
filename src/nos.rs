@@ -26,8 +26,8 @@ use std::collections::HashMap;
 
 #[derive(FromValue, Debug, PartialEq)]
 pub struct Command {
-    pub command: Option<HashMap<String, Command>>,
-    pub option: Option<HashMap<String, UserOption>>,
+    pub command: HashMap<String, Command>,
+    pub option: HashMap<String, UserOption>,
 }
 
 #[derive(FromValue, Debug, PartialEq)]
@@ -49,6 +49,6 @@ pub struct Nos {
     pub authors: Vec<String>,
     pub version: String,
     pub license: String,
-    pub command: Option<HashMap<String, Command>>,
-    pub option: Option<HashMap<String, UserOption>>,
+    pub command: HashMap<String, Command>,
+    pub option: HashMap<String, UserOption>,
 }

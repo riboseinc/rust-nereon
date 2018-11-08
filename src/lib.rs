@@ -153,6 +153,7 @@ extern crate lazy_static;
 #[macro_use]
 extern crate nereon_derive;
 
+use clap::{App, ArgMatches};
 use std::collections::HashMap;
 use std::env;
 use std::ffi::OsString;
@@ -160,7 +161,7 @@ use std::fs::File;
 use std::io::Read;
 
 mod nos;
-use nos::{Nos, UserOption};
+use nos::{Command, Nos, UserOption};
 
 mod noc;
 pub use noc::{parse_noc, ConversionError, FromValue, NocError, ParseError, Value};
@@ -204,11 +205,9 @@ where
     T: FromValue,
 {
     let nos = parse_noc::<Nos>(nos).expect("Invalid NOS");
-
-    let options = nos.option.as_ref().expect("Invalid NOS");
-
+    println!("{:?}", nos);
     // get command line options
-    let mut clap_app = clap::App::new(nos.name.to_owned())
+    let mut clap_app = clap::App::new(nos.name.as_str())
         .version(nos.version.as_str())
         .about(nos.license.as_str());
 
@@ -216,6 +215,39 @@ where
         clap_app = clap_app.author(a.as_str());
     }
 
+    clap_app = clap_app_init(clap_app, &nos.option, &nos.command);
+
+    let matches = clap_app
+        .get_matches_from_safe(args)
+        .map_err(|e| format!("{}", e))?;
+
+    // read the config file if there is one
+    let mut config = Value::Table(HashMap::new());
+    if let Some(n) = matches.value_of_os("config") {
+        let mut buffer = String::new();
+        config = File::open(&n)
+            .and_then(|ref mut f| f.read_to_string(&mut buffer))
+            .map_err(|e| format!("{}", e))
+            .and_then(|_| parse_noc::<Value>(&buffer).map_err(|e| format!("{:?}", e)))
+            .and_then(|v| {
+                Ok({
+                    let keys = key_to_strs(&nos.option.get("config").unwrap());
+                    config.insert(keys, v)
+                })
+            })?
+    };
+
+    // build the config tree
+    config = update_config(config, &nos.option, &nos.command, &matches);
+
+    T::from_value(config).map_err(|e| format!("{}", e))
+}
+
+fn clap_app_init<'a, 'b>(
+    mut app: App<'a, 'b>,
+    options: &'a HashMap<String, UserOption>,
+    subcommands: &'a HashMap<String, Command>,
+) -> App<'a, 'b> {
     for (n, o) in options.iter() {
         let mut arg = clap::Arg::with_name(n.as_str());
         for f in o.flags.iter() {
@@ -241,34 +273,24 @@ where
         if let Some(ref h) = o.hint {
             arg = arg.value_name(h);
         }
-        clap_app = clap_app.arg(arg);
+        app = app.arg(arg);
     }
-
-    let matches = clap_app
-        .get_matches_from_safe(args)
-        .map_err(|e| format!("{}", e))?;
-
-    fn key_to_strs(option: &UserOption) -> Vec<&str> {
-        option.key.iter().map(|k| k.as_str()).collect()
+    for (n, c) in subcommands.iter() {
+        app = app.subcommand(clap_app_init(
+            clap::SubCommand::with_name(n),
+            &c.option,
+            &c.command,
+        ));
     }
+    app
+}
 
-    // read the config file if there is one
-    let mut config = Value::Table(HashMap::new());
-    if let Some(n) = matches.value_of_os("config") {
-        let mut buffer = String::new();
-        config = File::open(&n)
-            .and_then(|ref mut f| f.read_to_string(&mut buffer))
-            .map_err(|e| format!("{}", e))
-            .and_then(|_| parse_noc::<Value>(&buffer).map_err(|e| format!("{:?}", e)))
-            .and_then(|v| {
-                Ok({
-                    let keys = key_to_strs(&options.get("config").unwrap());
-                    config.insert(keys, v)
-                })
-            })?
-    };
-
-    // build the config tree
+fn update_config(
+    mut config: Value,
+    options: &HashMap<String, UserOption>,
+    subcommands: &HashMap<String, Command>,
+    matches: &ArgMatches,
+) -> Value {
     config = options.iter().fold(config, |mut config, (name, option)| {
         if name != "config" {
             let value = if matches.occurrences_of(name) == 0 {
@@ -300,7 +322,17 @@ where
         }
         config
     });
-    T::from_value(config).map_err(|e| format!("{}", e))
+    if let Some(name) = matches.subcommand_name() {
+        if let Some(matches) = matches.subcommand_matches(name) {
+            let subcommand = subcommands.get(name).unwrap();
+            config = update_config(config, &subcommand.option, &subcommand.command, matches);
+        }
+    }
+    config
+}
+
+fn key_to_strs(option: &UserOption) -> Vec<&str> {
+    option.key.iter().map(|k| k.as_str()).collect()
 }
 
 #[cfg(test)]
@@ -378,4 +410,41 @@ option permissions {
         );
         ::std::fs::remove_file("/tmp/nereon_test").unwrap();
     }
+
+    #[test]
+    fn test_configure2() {
+        use super::{configure, Value};
+        use std::collections::HashMap;
+        let nos = r#"
+name "Nereon test"
+authors ["John Doe <john@doe.me>"]
+version "0.0.1"
+license Free
+option username {
+    short u
+    long user
+    env NEREON_USER
+    default admin
+    hint USER
+    usage "User name"
+    key [username]
+}
+command sub {
+    option one {
+        short o
+        long one
+        flags [takesvalue],
+        usage "Supply one"
+        key [sub, one]
+    }
+}"#;
+        let expected = Value::Table(HashMap::new())
+            .insert(vec!["username"], Value::from("root"))
+            .insert(vec!["sub", "one"], Value::from("1"));
+        assert_eq!(
+            configure::<Value, _, _>(nos, &["program", "-u", "root", "sub", "-o", "1"]),
+            Ok(expected)
+        );
+    }
+
 }

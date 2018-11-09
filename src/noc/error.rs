@@ -44,13 +44,13 @@ pub struct ConversionError {
 
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} at ", self. reason);
+        write!(f, "{} at ", self.reason).ok();
         let mut it = self.positions.iter().peekable();
         while it.peek().is_some() {
             let (l, c) = it.next().unwrap();
-            write!(f, "(line: {}, char {})", l, c);
+            write!(f, "(line: {}, char {})", l, c).ok();
             if it.peek().is_some() {
-                write!(f, " while parsing ");
+                write!(f, " while parsing ").ok();
             }
         }
         Ok(())
@@ -63,14 +63,14 @@ impl fmt::Display for ConversionError {
             f,
             "Expected {} but found {} while parsing the value for ",
             self.expected, self.found
-        );
+        ).ok();
         let mut it = self.keys.iter().peekable();
         while it.peek().is_some() {
             let k = it.next().unwrap();
             if it.peek().is_some() {
-                write!(f, "\"{}\", ", k);
+                write!(f, "\"{}\", ", k).ok();
             } else {
-                write!(f, "\"{}\"", k);
+                write!(f, "\"{}\"", k).ok();
             }
         }
         Ok(())

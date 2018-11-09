@@ -22,10 +22,12 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 use noc::ConversionError;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::hash::Hash;
 use std::iter::{self, FromIterator};
+use std::slice;
+use std::vec::Drain;
 
 /// Main `Value` enum with variants for strings, tables, and lists.
 ///
@@ -35,15 +37,64 @@ use std::iter::{self, FromIterator};
 /// ```
 /// # extern crate nereon;
 /// # use std::collections::HashMap;
-/// # use nereon::Value;
+/// # use nereon::{Table, Value};
 /// assert_eq!(Value::String("42".to_owned()), Value::from("42"));
-/// assert_eq!(Value::Table(HashMap::new()), Value::from(HashMap::<String, Value>::new()));
+/// assert_eq!(Value::Table(Table::new()), Value::from(HashMap::<String, Value>::new()));
 /// assert_eq!(Value::List(vec![]), Value::from(Vec::<Value>::new()));
 /// ```
+
+#[derive(Debug, Default, PartialEq, Clone)]
+pub struct Table {
+    inner: Vec<(String, Value)>,
+}
+
+impl Table {
+    pub fn new() -> Self {
+        Self { inner: Vec::new() }
+    }
+    pub fn remove(&mut self, k: &str) -> Option<Value> {
+        self.inner
+            .iter()
+            .position(|(kk, _)| kk == k)
+            .map(|pos| self.inner.remove(pos).1)
+    }
+    pub fn insert(&mut self, k: String, v: Value) -> Option<Value> {
+        let ret = self.remove(&k);
+        self.inner.push((k, v));
+        ret
+    }
+    pub fn drain(&mut self) -> Drain<(String, Value)> {
+        self.inner.drain(..)
+    }
+    pub fn get(&self, k: &str) -> Option<&Value> {
+        self.inner.iter().find(|(kk, _)| kk == k).map(|(_, v)| v)
+    }
+    pub fn iter(&self) -> slice::Iter<(String, Value)> {
+        self.inner.iter()
+    }
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.inner.len() == 0
+    }
+}
+
+impl FromIterator<(String, Value)> for Table {
+    fn from_iter<I>(it: I) -> Self
+    where
+        I: IntoIterator<Item = (String, Value)>,
+    {
+        Self {
+            inner: Vec::from_iter(it),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum Value {
     String(String),
-    Table(HashMap<String, Value>),
+    Table(Table),
     List(Vec<Value>),
 }
 
@@ -110,21 +161,20 @@ impl Value {
     /// # Example
     /// ```
     /// # extern crate nereon;
-    /// # use std::collections::HashMap;
-    /// # use nereon::{Value, parse_noc};
-    /// let mut v = Value::Table(HashMap::new());
+    /// # use nereon::{Table, Value, parse_noc};
+    /// let mut v = Value::Table(Table::new());
     /// assert_eq!(v, parse_noc::<Value>("").unwrap());
     /// v = v.insert(vec!["forename"], Value::from("John"));
     /// assert_eq!(v, parse_noc::<Value>("forename John").unwrap());
     /// v = v.insert(vec!["surname"], Value::from("Doe"));
     /// assert_eq!(v, parse_noc::<Value>("forename John, surname Doe").unwrap());
     /// v = v.insert(vec!["forename"], Value::from(vec!["John", "Reginald"]));
-    /// assert_eq!(v, parse_noc::<Value>("forename [John, Reginald], surname Doe").unwrap());
+    /// assert_eq!(v, parse_noc::<Value>("surname Doe, forename [John, Reginald]").unwrap());
     /// v = v.insert(vec!["forename", "first"], Value::from("John"));
-    /// assert_eq!(v, parse_noc::<Value>("forename { first John }, surname Doe").unwrap());
+    /// assert_eq!(v, parse_noc::<Value>("surname Doe, forename { first John }").unwrap());
     /// v = v.insert(vec!["forename", "middle"], Value::from("Reginald"));
     /// assert_eq!(v, parse_noc::<Value>(
-    ///     "forename { first John, middle Reginald }, surname Doe").unwrap());
+    ///     "surname Doe, forename { first John, middle Reginald }").unwrap());
     /// ```
     pub fn insert<'a, I, V>(self, keys: I, value: V) -> Self
     where
@@ -153,7 +203,7 @@ impl Value {
                             (v, _) => v,
                         }
                     } else {
-                        let mut node = old_value.unwrap_or_else(|| Value::Table(HashMap::new()));
+                        let mut node = old_value.unwrap_or_else(|| Value::Table(Table::new()));
                         node.insert(keys.collect::<Vec<_>>(), value)
                     },
                 );
@@ -185,7 +235,6 @@ impl Value {
     /// # Example
     /// ```
     /// # extern crate nereon;
-    /// # use std::collections::HashMap;
     /// # use nereon::{Value, parse_noc};
     /// let v = parse_noc::<Value>("number 42").unwrap();
     /// assert_eq!(v.get("number"), Some(&Value::String("42".to_owned())));
@@ -199,7 +248,6 @@ impl Value {
     /// # Example
     /// ```
     /// # extern crate nereon;
-    /// # use std::collections::HashMap;
     /// # use nereon::{Value, parse_noc};
     /// let v = parse_noc::<Value>("a { b { c 42 } }").unwrap();
     /// assert_eq!(
@@ -252,38 +300,36 @@ impl Value {
         }
     }
 
-    /// Get a reference to contained `HashMap` from `Value`
+    /// Get a reference to contained `Table` from `Value`
     ///
     /// Returns `None` if value isn't `Value::Table` variant.
     ///
     /// # Example
     /// ```
     /// # extern crate nereon;
-    /// # use nereon::Value;
-    /// # use std::collections::HashMap;
+    /// # use nereon::{Table, Value};
     /// assert_eq!(Value::from("42").as_table(), None);
-    /// assert_eq!(Value::Table(HashMap::new()).as_table(), Some(&HashMap::new()));
+    /// assert_eq!(Value::Table(Table::new()).as_table(), Some(&Table::new().into()));
     /// ```
-    pub fn as_table<'a>(&'a self) -> Option<&'a HashMap<String, Value>> {
+    pub fn as_table(&self) -> Option<&Table> {
         match self {
             Value::Table(ref map) => Some(map),
             _ => None,
         }
     }
 
-    /// Get a mutable reference to contained `HashMap` from `Value`
+    /// Get a mutable reference to contained `Table` from `Value`
     ///
     /// Returns `None` if value isn't `Value::Table` variant.
     ///
     /// # Example
     /// ```
     /// # extern crate nereon;
-    /// # use nereon::Value;
-    /// # use std::collections::HashMap;
+    /// # use nereon::{Table, Value};
     /// assert_eq!(Value::from("42").as_table(), None);
-    /// assert_eq!(Value::Table(HashMap::new()).as_table(), Some(&HashMap::new()));
+    /// assert_eq!(Value::Table(Table::new()).as_table(), Some(&Table::new()));
     /// ```
-    pub fn as_table_mut<'a>(&'a mut self) -> Option<&'a mut HashMap<String, Value>> {
+    pub fn as_table_mut(&mut self) -> Option<&mut Table> {
         match self {
             Value::Table(ref mut map) => Some(map),
             _ => None,
@@ -295,9 +341,8 @@ impl Value {
     /// # Example
     /// ```
     /// # extern crate nereon;
-    /// # use nereon::Value;
-    /// # use std::collections::HashMap;
-    /// assert_eq!(Value::Table(HashMap::new()).is_table(), true);
+    /// # use nereon::{Table, Value};
+    /// assert_eq!(Value::Table(Table::new()).is_table(), true);
     /// assert_eq!(Value::from("42").is_table(), false);
     /// ```
     pub fn is_table(&self) -> bool {
@@ -385,7 +430,7 @@ impl Value {
                 values.join(",")
             }
             Value::Table(m) => {
-                let values = BTreeMap::from_iter(m.iter())
+                let values = m
                     .iter()
                     .map(|(k, v)| match v {
                         Value::Table(_) => format!("\"{}\" {{{}}}", k, v.as_noc_string()),
@@ -426,7 +471,7 @@ impl Value {
                     }
                 }).collect::<Vec<_>>()
                 .join("\n"),
-            Value::Table(m) => BTreeMap::from_iter(m.iter()) // sort
+            Value::Table(m) => m
                 .iter()
                 .map(|(k, v)| {
                     let s = v.as_s_indent(indent + 1);
@@ -435,8 +480,7 @@ impl Value {
                         Value::List(_) => format!("{}\"{}\" [\n{}\n{}]", tabs, k, s, tabs),
                         Value::String(_) => format!("{}\"{}\" {}", tabs, k, s),
                     }
-                })
-                .collect::<Vec<_>>()
+                }).collect::<Vec<_>>()
                 .join("\n"),
         }
     }
@@ -559,17 +603,38 @@ where
     }
 }
 
+impl<T> FromValue for Vec<(String, T)>
+where
+    T: FromValue,
+{
+    fn from_value(value: Value) -> Result<Self, ConversionError> {
+        match value {
+            Value::Table(mut l) => l.drain().try_fold(Vec::new(), |mut m, (k, v)| {
+                T::from_value(v).map(|v| {
+                    m.push((k, v));
+                    m
+                })
+            }),
+            Value::String(_) => Err(ConversionError::new("table", "string")),
+            Value::List(_) => Err(ConversionError::new("table", "list")),
+        }
+    }
+    fn from_no_value() -> Result<Self, ConversionError> {
+        Ok(Vec::default())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::parse_noc;
-    use super::{FromValue, Value};
+    use super::{FromValue, Table, Value};
     use std::collections::HashMap;
 
     #[test]
     fn test_value_from() {
         assert_eq!(
             Value::from(HashMap::<String, Value>::new()),
-            Value::Table(HashMap::new())
+            Value::Table(Table::new())
         );
         assert_eq!(Value::from(Vec::<&str>::new()), Value::List(Vec::new()));
         assert_eq!(Value::from("hello"), Value::String("hello".to_owned()));
@@ -600,7 +665,7 @@ mod tests {
         assert_eq!(value.get("c"), Some(&Value::String("c".to_owned())));
         assert_eq!(value.get("d"), None);
         assert_eq!(value.get("f"), Some(&Value::List(Vec::new())));
-        assert_eq!(value.get("e"), Some(&Value::Table(HashMap::new())));
+        assert_eq!(value.get("e"), Some(&Value::Table(Table::new())));
     }
 
     #[test]
@@ -622,7 +687,7 @@ mod tests {
         assert_eq!(value.lookup(vec!["a", "f"]), Some(&Value::List(Vec::new())));
         assert_eq!(
             value.lookup(vec!["a", "e"]),
-            Some(&Value::Table(HashMap::new()))
+            Some(&Value::Table(Table::new()))
         );
     }
 
@@ -640,7 +705,7 @@ mod tests {
         assert_eq!(v.is_list(), true);
         let v = Value::from(HashMap::<String, Value>::new());
         assert_eq!(v.as_list(), None);
-        assert_eq!(v.as_table(), Some(&HashMap::new()));
+        assert_eq!(v.as_table(), Some(&Table::new()));
         assert_eq!(v.is_list(), false);
         assert_eq!(v.is_table(), true);
     }
@@ -675,12 +740,16 @@ mod tests {
             Ok("hello".to_owned())
         );
         assert_eq!(
-            Vec::from_value(Value::from(vec!["a", "b"])),
-            Ok(vec!["a".to_owned(), "b".to_owned()])
+            Vec::<Value>::from_value(Value::from(vec!["a", "b"])),
+            Ok(vec!["a".into(), "b".into()])
         );
         assert_eq!(
             HashMap::from_value(Value::from(HashMap::<&str, &str>::new())),
             Ok(HashMap::<String, String>::new())
+        );
+        assert_eq!(
+            Vec::<(String, Value)>::from_value(Value::Table(Table::new()).insert(vec!["a"], "a")),
+            Ok(vec![("a".to_owned(), "a".into())])
         );
     }
 }

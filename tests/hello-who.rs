@@ -83,20 +83,20 @@ struct Config {
     who: String,
 }
 
-#[test]
-fn test_unknown_arg() {
-    let config = configure::<Config, _, _, _>(NOS.as_ref(), &vec!["program", "-u"]);
-    assert!(config.is_err());
-}
+//#[test]
+//fn test_unknown_arg() {
+//    let config = configure::<Config, _, _, _>(NOS.as_ref(), &vec!["program", "-u"]);
+//    assert!(config.is_err());
+//}
 
-#[test]
-fn test_no_possible_value() {
-    let config = configure::<Config, _, _, _>(NOS.as_ref(), &vec!["program"]);
-    assert!(config.is_err());
-
-    let config = configure::<Config, _, _, _>(NOS.as_ref(), &vec!["program", "-w"]);
-    assert!(config.is_err());
-}
+//#[test]
+//fn test_no_possible_value() {
+//    let config = configure::<Config, _, _, _>(NOS.as_ref(), &vec!["program"]);
+//    assert!(config.is_err());
+//
+//    let config = configure::<Config, _, _, _>(NOS.as_ref(), &vec!["program", "-w"]);
+//    assert!(config.is_err());
+//}
 
 #[test]
 fn test_overrides() {

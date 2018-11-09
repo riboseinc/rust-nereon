@@ -30,8 +30,7 @@
 //!
 //! ```
 //! extern crate nereon;
-//! use nereon::{parse_noc, Value};
-//! use std::collections::HashMap;
+//! use nereon::{parse_noc, Table, Value};
 //!
 //! let noc = r#"
 //!     user admin {
@@ -39,7 +38,7 @@
 //!         name "John Doe"
 //!     }"#;
 //!
-//! let expected = Value::Table(HashMap::new())
+//! let expected = Value::Table(Table::new())
 //!     .insert(vec!["user", "admin", "uid"], Value::from("1000"))
 //!     .insert(vec!["user", "admin", "name"], Value::from("John Doe"));
 //!
@@ -54,8 +53,8 @@
 //!
 //! let noc = r#"
 //!     user admin {
-//!         uid 1000 + 10
 //!         name "John Doe"
+//!         uid 1000 + 10
 //!     }"#;
 //!
 //! let expected = r#""user" {"admin" {"name" "John Doe","uid" "1010"}}"#
@@ -154,7 +153,6 @@ extern crate lazy_static;
 extern crate nereon_derive;
 
 use clap::{App, ArgMatches};
-use std::collections::HashMap;
 use std::env;
 use std::ffi::OsString;
 use std::fs::File;
@@ -164,7 +162,7 @@ mod nos;
 use nos::{Command, Nos, UserOption};
 
 mod noc;
-pub use noc::{parse_noc, ConversionError, FromValue, NocError, ParseError, Value};
+pub use noc::{parse_noc, ConversionError, FromValue, NocError, ParseError, Table, Value};
 
 /// Parse command-line options into a [`Value`](enum.Value.html).
 ///
@@ -172,8 +170,7 @@ pub use noc::{parse_noc, ConversionError, FromValue, NocError, ParseError, Value
 ///
 /// ```
 /// # extern crate nereon;
-/// use std::collections::HashMap;
-/// use nereon::{Value, parse_noc, configure, FromValue};
+/// use nereon::{Table, Value, parse_noc, configure, FromValue};
 /// let nos = r#"
 ///     name "Nereon test"
 ///     authors ["John Doe <john@doe.me>"]
@@ -188,7 +185,7 @@ pub use noc::{parse_noc, ConversionError, FromValue, NocError, ParseError, Value
 ///         usage "User name"
 ///         key [username]
 ///     }"#;
-/// let expected = Value::Table(HashMap::new())
+/// let expected = Value::Table(Table::new())
 ///     .insert(vec!["username"], Value::from("root"));
 /// assert_eq!(configure(nos, &["program", "-u", "root"]), Ok(expected));
 /// ```
@@ -206,7 +203,6 @@ where
 {
     let nos = nos.into();
 
-    println!("{:?}", nos);
     // get command line options
     let mut clap_app = clap::App::new(nos.name.as_str())
         .version(nos.version.as_str())
@@ -218,12 +214,10 @@ where
 
     clap_app = clap_app_init(clap_app, &nos.option, &nos.command);
 
-    let matches = clap_app
-        .get_matches_from_safe(args)
-        .map_err(|e| format!("{}", e))?;
+    let matches = clap_app.get_matches_from(args);
 
     // read the config file if there is one
-    let mut config = Value::Table(HashMap::new());
+    let mut config = Value::Table(Table::new());
     if let Some(n) = matches.value_of_os("config") {
         let mut buffer = String::new();
         config = File::open(&n)
@@ -232,7 +226,8 @@ where
             .and_then(|_| parse_noc::<Value>(&buffer).map_err(|e| format!("{:?}", e)))
             .and_then(|v| {
                 Ok({
-                    let keys = key_to_strs(&nos.option.get("config").unwrap());
+                    let keys =
+                        key_to_strs(&nos.option.iter().find(|(k, _)| k == "config").unwrap().1);
                     config.insert(keys, v)
                 })
             })?
@@ -246,8 +241,8 @@ where
 
 fn clap_app_init<'a, 'b>(
     mut app: App<'a, 'b>,
-    options: &'a HashMap<String, UserOption>,
-    subcommands: &'a HashMap<String, Command>,
+    options: &'a [(String, UserOption)],
+    subcommands: &'a [(String, Command)],
 ) -> App<'a, 'b> {
     for (n, o) in options.iter() {
         let mut arg = clap::Arg::with_name(n.as_str());
@@ -288,8 +283,8 @@ fn clap_app_init<'a, 'b>(
 
 fn update_config(
     mut config: Value,
-    options: &HashMap<String, UserOption>,
-    subcommands: &HashMap<String, Command>,
+    options: &[(String, UserOption)],
+    subcommands: &[(String, Command)],
     matches: &ArgMatches,
 ) -> Value {
     config = options.iter().fold(config, |mut config, (name, option)| {
@@ -325,7 +320,7 @@ fn update_config(
     });
     if let Some(name) = matches.subcommand_name() {
         if let Some(matches) = matches.subcommand_matches(name) {
-            let subcommand = subcommands.get(name).unwrap();
+            let subcommand = &subcommands.iter().find(|(k, _)| k == name).unwrap().1;
             config = update_config(config, &subcommand.option, &subcommand.command, matches);
         }
     }
@@ -340,8 +335,7 @@ fn key_to_strs(option: &UserOption) -> Vec<&str> {
 mod tests {
     #[test]
     fn test_configure() {
-        use super::{configure, Value};
-        use std::collections::HashMap;
+        use super::{configure, Table, Value};
         let nos = r#"
 name "Nereon test"
 authors ["John Doe <john@doe.me>"]
@@ -356,21 +350,17 @@ option username {
     usage "User name"
     key [username]
 }"#;
-        let expected = Value::Table(HashMap::new()).insert(vec!["username"], Value::from("root"));
-        assert_eq!(
-            configure(nos, &["program", "-u", "root"]),
-            Ok(expected)
-        );
+        let expected = Value::Table(Table::new()).insert(vec!["username"], Value::from("root"));
+        assert_eq!(configure(nos, &["program", "-u", "root"]), Ok(expected));
     }
 
     #[test]
     fn test_configure1() {
-        use super::{configure, parse_noc, Value};
-        use std::collections::HashMap;
+        use super::{configure, parse_noc, Table, Value};
 
         let noc = r#"user admin {uid 1000}"#;
         let expected =
-            Value::Table(HashMap::new()).insert(vec!["user", "admin", "uid"], Value::from("1000"));
+            Value::Table(Table::new()).insert(vec!["user", "admin", "uid"], Value::from("1000"));
         assert_eq!(parse_noc::<Value>(noc), Ok(expected));
 
         let nos = r#"
@@ -405,17 +395,13 @@ option permissions {
             user admin uid 100
             user admin permissions "read,write""#,
         ).unwrap();
-        assert_eq!(
-            configure(nos, &["program", "-u", "100"]),
-            Ok(expected)
-        );
+        assert_eq!(configure(nos, &["program", "-u", "100"]), Ok(expected));
         ::std::fs::remove_file("/tmp/nereon_test").unwrap();
     }
 
     #[test]
     fn test_configure2() {
-        use super::{configure, Value};
-        use std::collections::HashMap;
+        use super::{configure, Table, Value};
         let nos = r#"
 name "Nereon test"
 authors ["John Doe <john@doe.me>"]
@@ -440,7 +426,7 @@ command sub {
     }
 }"#;
         let actual = configure(nos, &["program", "-u", "root", "sub", "-o", "1"]);
-        let expected = Ok(Value::Table(HashMap::new())
+        let expected = Ok(Value::Table(Table::new())
             .insert(vec!["username"], Value::from("root"))
             .insert(vec!["sub", "one"], Value::from("1")));
         assert_eq!(actual, expected);

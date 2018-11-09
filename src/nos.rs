@@ -22,12 +22,11 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 use super::{parse_noc, ConversionError, FromValue, Value};
-use std::collections::HashMap;
 
 #[derive(FromValue, Debug, PartialEq)]
 pub struct Command {
-    pub command: HashMap<String, Command>,
-    pub option: HashMap<String, UserOption>,
+    pub command: Vec<(String, Command)>,
+    pub option: Vec<(String, UserOption)>,
 }
 
 #[derive(FromValue, Debug, PartialEq)]
@@ -49,8 +48,8 @@ pub struct Nos {
     pub authors: Vec<String>,
     pub version: String,
     pub license: String,
-    pub command: HashMap<String, Command>,
-    pub option: HashMap<String, UserOption>,
+    pub command: Vec<(String, Command)>,
+    pub option: Vec<(String, UserOption)>,
 }
 
 impl<'a> From<&'a str> for Nos {

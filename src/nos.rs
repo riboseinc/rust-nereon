@@ -21,7 +21,7 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-use super::{ConversionError, FromValue, Value};
+use super::{ConversionError, FromValue, Value, parse_noc};
 use std::collections::HashMap;
 
 #[derive(FromValue, Debug, PartialEq)]
@@ -51,4 +51,16 @@ pub struct Nos {
     pub license: String,
     pub command: HashMap<String, Command>,
     pub option: HashMap<String, UserOption>,
+}
+
+impl<'a> From<&'a str> for Nos {
+    fn from(s: &str) -> Self {
+        parse_noc::<Nos>(s).expect("Invalid NOS string")
+    }
+}
+
+impl From<Value> for Nos {
+    fn from(v: Value) -> Self {
+        Nos::from_value(v).expect("Invalid NOS Value")
+    }
 }

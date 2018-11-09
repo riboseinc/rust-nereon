@@ -85,16 +85,16 @@ struct Config {
 
 #[test]
 fn test_unknown_arg() {
-    let config = configure::<Config, _, _>(&NOS, &vec!["program", "-u"]);
+    let config = configure::<Config, _, _, _>(NOS.as_ref(), &vec!["program", "-u"]);
     assert!(config.is_err());
 }
 
 #[test]
 fn test_no_possible_value() {
-    let config = configure::<Config, _, _>(&NOS, &vec!["program"]);
+    let config = configure::<Config, _, _, _>(NOS.as_ref(), &vec!["program"]);
     assert!(config.is_err());
 
-    let config = configure::<Config, _, _>(&NOS, &vec!["program", "-w"]);
+    let config = configure::<Config, _, _, _>(NOS.as_ref(), &vec!["program", "-w"]);
     assert!(config.is_err());
 }
 
@@ -104,7 +104,7 @@ fn test_overrides() {
 
     // test default greeting
     env::remove_var("GREETING");
-    let config = configure::<Config, _, _>(&NOS, &vec!["program", "-w", "World"]);
+    let config = configure::<Config, _, _, _>(NOS.as_ref(), &vec!["program", "-w", "World"]);
     assert_eq!(
         config,
         Ok(Config {
@@ -115,8 +115,8 @@ fn test_overrides() {
 
     // ensure config overrides default
     env::remove_var("GREETING");
-    let config = configure::<Config, _, _>(
-        &NOS,
+    let config = configure::<Config, _, _, _>(
+        NOS.as_ref(),
         &vec!["program", "-c", "tests/hello-who.conf", "-w", "World"],
     );
     assert_eq!(
@@ -129,8 +129,8 @@ fn test_overrides() {
 
     // ensure explicit overrides default
     env::remove_var("GREETING");
-    let config = configure::<Config, _, _>(
-        &NOS,
+    let config = configure::<Config, _, _, _>(
+        NOS.as_ref(),
         &vec![
             "program",
             "-c",
@@ -151,7 +151,7 @@ fn test_overrides() {
 
     // ensure env overrides default
     env::set_var("GREETING", "Chow");
-    let config = configure::<Config, _, _>(&NOS, &vec!["program", "-w", "World"]);
+    let config = configure::<Config, _, _, _>(NOS.as_ref(), &vec!["program", "-w", "World"]);
     assert_eq!(
         config,
         Ok(Config {
@@ -162,8 +162,8 @@ fn test_overrides() {
 
     // ensure env overrides config
     env::set_var("GREETING", "Chow");
-    let config = configure::<Config, _, _>(
-        &NOS,
+    let config = configure::<Config, _, _, _>(
+        NOS.as_ref(),
         &vec!["program", "-c", "tests/hello-who.conf", "-w", "World"],
     );
     assert_eq!(
@@ -176,8 +176,8 @@ fn test_overrides() {
 
     // ensure explicit overrides config
     env::remove_var("GREETING");
-    let config = configure::<Config, _, _>(
-        &NOS,
+    let config = configure::<Config, _, _, _>(
+        NOS.as_ref(),
         &vec![
             "program",
             "-c",
@@ -198,8 +198,8 @@ fn test_overrides() {
 
     // ensure explicit overrides env
     env::set_var("GREETING", "Chow");
-    let config = configure::<Config, _, _>(
-        &NOS,
+    let config = configure::<Config, _, _, _>(
+        NOS.as_ref(),
         &vec![
             "program",
             "-c",

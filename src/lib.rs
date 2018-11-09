@@ -136,7 +136,7 @@
 //!     user admin permissions "read,write""#
 //! ).unwrap();
 //!
-//! assert_eq!(configure::<Value, _, _>(&nos, &["program", "-u", "100"]), Ok(expected));
+//! assert_eq!(configure(nos, &["program", "-u", "100"]), Ok(expected));
 //!
 //! # ::std::fs::remove_file("/tmp/nereon_test").unwrap();
 //! ```
@@ -190,21 +190,22 @@ pub use noc::{parse_noc, ConversionError, FromValue, NocError, ParseError, Value
 ///     }"#;
 /// let expected = Value::Table(HashMap::new())
 ///     .insert(vec!["username"], Value::from("root"));
-/// assert_eq!(configure::<Value, _, _>(nos, &["program", "-u", "root"]), Ok(expected));
+/// assert_eq!(configure(nos, &["program", "-u", "root"]), Ok(expected));
 /// ```
 /// # Panics
 ///
 /// `configure` panics if `nos` string is not valid NOS. This is
 /// considered a programming error: the NOS is asserted to be valid
 /// and considered a part of the program source.
-pub fn configure<T, U: IntoIterator<Item = I>, I: Into<OsString> + Clone>(
-    nos: &str,
-    args: U,
-) -> Result<T, String>
+pub fn configure<T, N, U, I>(nos: N, args: U) -> Result<T, String>
 where
     T: FromValue,
+    Nos: From<N>,
+    U: IntoIterator<Item = I>,
+    I: Into<OsString> + Clone,
 {
-    let nos = parse_noc::<Nos>(nos).expect("Invalid NOS");
+    let nos = Nos::from(nos);
+
     println!("{:?}", nos);
     // get command line options
     let mut clap_app = clap::App::new(nos.name.as_str())
@@ -357,7 +358,7 @@ option username {
 }"#;
         let expected = Value::Table(HashMap::new()).insert(vec!["username"], Value::from("root"));
         assert_eq!(
-            configure::<Value, _, _>(nos, &["program", "-u", "root"]),
+            configure(nos, &["program", "-u", "root"]),
             Ok(expected)
         );
     }
@@ -405,7 +406,7 @@ option permissions {
             user admin permissions "read,write""#,
         ).unwrap();
         assert_eq!(
-            configure::<Value, _, _>(nos, &["program", "-u", "100"]),
+            configure(nos, &["program", "-u", "100"]),
             Ok(expected)
         );
         ::std::fs::remove_file("/tmp/nereon_test").unwrap();
@@ -438,13 +439,11 @@ command sub {
         key [sub, one]
     }
 }"#;
-        let expected = Value::Table(HashMap::new())
+        let actual = configure(nos, &["program", "-u", "root", "sub", "-o", "1"]);
+        let expected = Ok(Value::Table(HashMap::new())
             .insert(vec!["username"], Value::from("root"))
-            .insert(vec!["sub", "one"], Value::from("1"));
-        assert_eq!(
-            configure::<Value, _, _>(nos, &["program", "-u", "root", "sub", "-o", "1"]),
-            Ok(expected)
-        );
+            .insert(vec!["sub", "one"], Value::from("1")));
+        assert_eq!(actual, expected);
     }
 
 }

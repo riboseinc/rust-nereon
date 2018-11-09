@@ -200,11 +200,11 @@ pub use noc::{parse_noc, ConversionError, FromValue, NocError, ParseError, Value
 pub fn configure<T, N, U, I>(nos: N, args: U) -> Result<T, String>
 where
     T: FromValue,
-    Nos: From<N>,
+    N: Into<Nos>,
     U: IntoIterator<Item = I>,
     I: Into<OsString> + Clone,
 {
-    let nos = Nos::from(nos);
+    let nos = nos.into();
 
     println!("{:?}", nos);
     // get command line options

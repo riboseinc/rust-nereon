@@ -339,6 +339,7 @@ mod tests {
             parse_noc::<B>("a a 12"),
             conversion_error(&["a", "a"], "nothing", "value")
         );
+        assert_eq!(parse_noc::<B>("a a {}"), Ok(B { a: A::A }));
     }
 
     #[test]
@@ -355,7 +356,6 @@ mod tests {
         }
         [
             ("a a [42]", (vec!["a", "a"], "nothing", "value")),
-            ("a a []", (vec!["a", "a"], "nothing", "value")),
             ("a b {b draft}", (vec!["a", "b", "b"], "u32", "string")),
             ("a b [42]", (vec!["a", "b"], "table", "list")),
             ("a b", (vec!["a", "b"], "table", "nothing")),

@@ -133,17 +133,20 @@ fn body_from_from_value_enum(name: &syn::Ident, data: &syn::DataEnum) -> TokenSt
                 }
             }
             syn::Fields::Unit => quote! {
-                v.map_or_else(
-                    || Ok(#name::#vname),
-                    |_| Err(ConversionError::new("nothing", "value"))
-                )
+                match v {
+                    None => Ok(#name::#vname),
+                    Some(Value::Table(ref t)) if t.is_empty() => Ok(#name::#vname),
+                    Some(Value::List(ref l)) if l.is_empty() => Ok(#name::#vname),
+                    _ => Err(ConversionError::new("nothing", "value")),
+                }
             },
         };
         quote! {
             #q
             #match_name => {
                 let ctor = || #branch;
-                ctor().map_err(|e| e.unshift_key(#match_name))
+                let result: Result<#name, ConversionError> = ctor();
+                result.map_err(|e| e.unshift_key(#match_name))
             },
         }
     });

@@ -26,9 +26,10 @@ use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::hash::Hash;
 use std::iter::{self, FromIterator};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
+use std::path::PathBuf;
 use std::slice;
 use std::vec::Drain;
-use std::path::PathBuf;
 
 /// Main `Value` enum with variants for strings, tables, and lists.
 ///
@@ -532,6 +533,12 @@ from_value_for!(i32);
 from_value_for!(i64);
 from_value_for!(f32);
 from_value_for!(f64);
+from_value_for!(SocketAddr);
+from_value_for!(SocketAddrV4);
+from_value_for!(SocketAddrV6);
+from_value_for!(IpAddr);
+from_value_for!(Ipv4Addr);
+from_value_for!(Ipv6Addr);
 
 impl FromValue for Value {
     fn from_value(value: Value) -> Result<Self, ConversionError> {

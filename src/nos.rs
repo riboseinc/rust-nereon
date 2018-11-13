@@ -25,6 +25,8 @@ use super::{parse_noc, ConversionError, FromValue, Value};
 
 #[derive(FromValue, Debug, PartialEq)]
 pub struct Command {
+    pub about: String,
+    pub key: Option<Vec<String>>,
     pub command: Vec<(String, Command)>,
     pub option: Vec<(String, UserOption)>,
 }
@@ -38,7 +40,7 @@ pub struct UserOption {
     pub default_arg: Option<String>,
     pub default: Option<String>,
     pub hint: Option<String>,
-    pub usage: String,
+    pub help: String,
     pub key: Vec<String>,
 }
 
@@ -48,6 +50,7 @@ pub struct Nos {
     pub authors: Vec<String>,
     pub version: String,
     pub license: String,
+    pub about: String,
     pub command: Vec<(String, Command)>,
     pub option: Vec<(String, UserOption)>,
 }

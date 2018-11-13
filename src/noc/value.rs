@@ -28,6 +28,7 @@ use std::hash::Hash;
 use std::iter::{self, FromIterator};
 use std::slice;
 use std::vec::Drain;
+use std::path::PathBuf;
 
 /// Main `Value` enum with variants for strings, tables, and lists.
 ///
@@ -542,6 +543,16 @@ impl FromValue for String {
     fn from_value(value: Value) -> Result<Self, ConversionError> {
         match value {
             Value::String(s) => Ok(s),
+            Value::Table(_) => Err(ConversionError::new("string", "table")),
+            Value::List(_) => Err(ConversionError::new("string", "list")),
+        }
+    }
+}
+
+impl FromValue for PathBuf {
+    fn from_value(value: Value) -> Result<Self, ConversionError> {
+        match value {
+            Value::String(s) => Ok(PathBuf::from(s)),
             Value::Table(_) => Err(ConversionError::new("string", "table")),
             Value::List(_) => Err(ConversionError::new("string", "list")),
         }

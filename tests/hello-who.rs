@@ -45,11 +45,12 @@ name "test-who"
 authors {}
 version {}
 license {}
+about "A pointless example program"
 option config {{
     short c
     long config
     hint FILE
-    usage "Config file"
+    help "Config file"
     key []
 }}
 option greeting {{
@@ -58,7 +59,7 @@ option greeting {{
     default Hello
     env GREETING
     flags [takesvalue]
-    usage "How to greet"
+    help "How to greet"
     key [greeting]
 }}
 option who {{
@@ -66,7 +67,7 @@ option who {{
     long who
     hint NAME
     flags [takesvalue, required]
-    usage "Entity to greet"
+    help "Entity to greet"
     key [who]
 }}
 "#,

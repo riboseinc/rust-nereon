@@ -108,21 +108,22 @@
 //!     authors ["John Doe <john@doe.me>"]
 //!     license Free
 //!     version "0.0.1"
+//!     about "A program to do stuff"
 //!     option config {
 //!         env nereon_config
-//!         usage "Config file"
+//!         help "Config file"
 //!         key []
 //!     }
 //!     option user {
 //!         short u
 //!         key [user, admin, uid]
-//!         usage "User's UID"
+//!         help "User's UID"
 //!         hint USER
 //!     }
 //!     option permissions {
 //!         env nereon_permissions
 //!         key [user, admin, permissions]
-//!         usage "Permissions for user"
+//!         help "Permissions for user"
 //!     }"#;
 //!
 //! // create an example NOC config file and environment variables
@@ -152,7 +153,7 @@ extern crate lazy_static;
 #[macro_use]
 extern crate nereon_derive;
 
-use clap::{App, ArgMatches};
+use clap::{App, AppSettings, ArgMatches};
 use std::env;
 use std::ffi::OsString;
 use std::fs::File;
@@ -176,13 +177,14 @@ pub use noc::{parse_noc, ConversionError, FromValue, NocError, ParseError, Table
 ///     authors ["John Doe <john@doe.me>"]
 ///     version "0.0.1"
 ///     license Free
+///     about "A program to do more stuff"
 ///     option username {
 ///         short u
 ///         long user
 ///         env NEREON_USER
 ///         default admin
 ///         hint USER
-///         usage "User name"
+///         help "User name"
 ///         key [username]
 ///     }"#;
 /// let expected = Value::Table(Table::new())
@@ -212,7 +214,7 @@ where
         clap_app = clap_app.author(a.as_str());
     }
 
-    clap_app = clap_app_init(clap_app, &nos.option, &nos.command);
+    clap_app = clap_app_init(clap_app, &nos.about, &nos.option, &nos.command);
 
     let matches = clap_app.get_matches_from(args);
 
@@ -227,7 +229,7 @@ where
             .and_then(|v| {
                 Ok({
                     let keys =
-                        key_to_strs(&nos.option.iter().find(|(k, _)| k == "config").unwrap().1);
+                        key_to_strs(&nos.option.iter().find(|(k, _)| k == "config").unwrap().1.key);
                     config.insert(keys, v)
                 })
             })?
@@ -241,11 +243,13 @@ where
 
 fn clap_app_init<'a, 'b>(
     mut app: App<'a, 'b>,
+    about: &'b str,
     options: &'a [(String, UserOption)],
     subcommands: &'a [(String, Command)],
 ) -> App<'a, 'b> {
+    app = app.about(about);
     for (n, o) in options.iter() {
-        let mut arg = clap::Arg::with_name(n.as_str());
+        let mut arg = clap::Arg::with_name(n.as_str()).help(&o.help);
         for f in o.flags.iter() {
             match f.as_ref() {
                 "required" => arg = arg.required(true),
@@ -272,11 +276,14 @@ fn clap_app_init<'a, 'b>(
         app = app.arg(arg);
     }
     for (n, c) in subcommands.iter() {
-        app = app.subcommand(clap_app_init(
-            clap::SubCommand::with_name(n),
-            &c.option,
-            &c.command,
-        ));
+        app = app
+            .setting(AppSettings::SubcommandRequired)
+            .subcommand(clap_app_init(
+                clap::SubCommand::with_name(n),
+                &c.about,
+                &c.option,
+                &c.command,
+            ));
     }
     app
 }
@@ -297,7 +304,7 @@ fn update_config(
                     .map(Value::from)
                     .or_else(|| {
                         config
-                            .lookup(key_to_strs(&option))
+                            .lookup(key_to_strs(&option.key))
                             .map_or_else(|| option.default.clone().map(Value::from), |_| None)
                     })
             } else if option.flags.iter().any(|ref f| f.as_str() == "multiple") {
@@ -312,7 +319,7 @@ fn update_config(
                     .or_else(|| option.default_arg.clone().map(Value::from))
             };
             if let Some(v) = value {
-                let keys = key_to_strs(option);
+                let keys = key_to_strs(&option.key);
                 config = config.insert(keys, v);
             }
         }
@@ -321,14 +328,17 @@ fn update_config(
     if let Some(name) = matches.subcommand_name() {
         if let Some(matches) = matches.subcommand_matches(name) {
             let subcommand = &subcommands.iter().find(|(k, _)| k == name).unwrap().1;
+            if let Some(ref key) = subcommand.key {
+                config = config.insert(key_to_strs(key), Value::Table(Table::new()));
+            }
             config = update_config(config, &subcommand.option, &subcommand.command, matches);
         }
     }
     config
 }
 
-fn key_to_strs(option: &UserOption) -> Vec<&str> {
-    option.key.iter().map(|k| k.as_str()).collect()
+fn key_to_strs(keys: &Vec<String>) -> Vec<&str> {
+    keys.iter().map(|k| k.as_str()).collect()
 }
 
 #[cfg(test)]
@@ -341,13 +351,14 @@ name "Nereon test"
 authors ["John Doe <john@doe.me>"]
 version "0.0.1"
 license Free
+about "This is a test"
 option username {
     short u
     long user
     env NEREON_USER
     default admin
     hint USER
-    usage "User name"
+    help "User name"
     key [username]
 }"#;
         let expected = Value::Table(Table::new()).insert(vec!["username"], Value::from("root"));
@@ -368,21 +379,22 @@ name "Nereon test"
 authors ["John Doe <john@doe.me>"]
 license Free
 version "0.0.1"
+about "This is a test"
 option config {
     env nereon_config
-    usage "Config file"
+    help "Config file"
     key []
 }
 option user {
     short u
     key [user, admin, uid]
-    usage "User's UID"
+    help "User's UID"
     hint USER
 }
 option permissions {
     env nereon_permissions
     key [user, admin, permissions]
-    usage "Permissions for user"
+    help "Permissions for user"
 }"#;
 
         // create an example NOC config file
@@ -407,21 +419,23 @@ name "Nereon test"
 authors ["John Doe <john@doe.me>"]
 version "0.0.1"
 license Free
+about "This is a test"
 option username {
     short u
     long user
     env NEREON_USER
     default admin
     hint USER
-    usage "User name"
+    help "User name"
     key [username]
 }
 command sub {
+    about "This is subcommand 1"
     option one {
         short o
         long one
         flags [takesvalue],
-        usage "Supply one"
+        help "Supply one"
         key [sub, one]
     }
 }"#;

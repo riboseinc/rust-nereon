@@ -228,8 +228,14 @@ where
             .and_then(|_| parse_noc::<Value>(&buffer).map_err(|e| format!("{:?}", e)))
             .and_then(|v| {
                 Ok({
-                    let keys =
-                        key_to_strs(&nos.option.iter().find(|(k, _)| k == "config").unwrap().1.key);
+                    let keys = key_to_strs(
+                        &nos.option
+                            .iter()
+                            .find(|(k, _)| k == "config")
+                            .unwrap()
+                            .1
+                            .key,
+                    );
                     config.insert(keys, v)
                 })
             })?
@@ -303,15 +309,30 @@ fn update_config(
                     .and_then(env::var_os)
                     .map(Value::from)
                     .or_else(|| {
-                        config
-                            .lookup(key_to_strs(&option.key))
-                            .map_or_else(|| option.default.clone().map(Value::from), |_| None)
+                        config.lookup(key_to_strs(&option.key)).map_or_else(
+                            || {
+                                if option.flags.iter().any(|f| f.as_str() == "multiple") {
+                                    option
+                                        .default
+                                        .clone()
+                                        .map(|v| Value::from(vec![Value::from(v)]))
+                                } else {
+                                    option.default.clone().map(Value::from)
+                                }
+                            },
+                            |_| None,
+                        )
                     })
             } else if option.flags.iter().any(|ref f| f.as_str() == "multiple") {
                 matches
                     .values_of_os(name)
                     .map(|vs| Value::from(vs.collect::<Vec<_>>()))
-                    .or_else(|| option.default_arg.clone().map(Value::from))
+                    .or_else(|| {
+                        option
+                            .default_arg
+                            .clone()
+                            .map(|v| Value::from(vec![Value::from(v)]))
+                    })
             } else {
                 matches
                     .value_of_os(name)

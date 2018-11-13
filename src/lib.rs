@@ -358,7 +358,7 @@ fn update_config(
     config
 }
 
-fn key_to_strs(keys: &Vec<String>) -> Vec<&str> {
+fn key_to_strs(keys: &[String]) -> Vec<&str> {
     keys.iter().map(|k| k.as_str()).collect()
 }
 

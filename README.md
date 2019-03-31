@@ -2,8 +2,8 @@
 
 Nereon configuration tools in native Rust. See
 [nereon-models](https://github.com/riboseinc/nereon-models),
-[nereon-syntax](https://github.com/nereon-syntax) and
-[libnereon](https://github.com/rioseinc/libnereon/README.md)
+[nereon-syntax](https://github.com/riboseinc/nereon-syntax) and
+[libnereon](https://github.com/riboseinc/libnereon/README.md)
 for background information.
 
 There is a NOC playground application bundled in `noc`. It generates
